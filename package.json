@@ -1,1 +1,21 @@
-{\n "name": "stu-portfolio-chat"\n}
+{
+  "name": "stu-portfolio-chat",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "next build",
+    "start": "next start",
+    "dev": "next dev"
+  },
+  "dependencies": {
+    "@vercel/blob": "0.24.0",
+    "cosine-similarity": "1.0.0",
+    "gray-matter": "4.0.3",
+    "next": "14.2.5",
+    "openai": "4.56.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "remark": "15.0.1",
+    "strip-markdown": "6.0.0"
+  }
+}
