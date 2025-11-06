@@ -4,7 +4,17 @@ import { loadPlainTextDocs, chunkText } from "../../../../lib/chunk";
 import { saveIndexJson } from "../../../../lib/blob";
 
 export const runtime = "nodejs";
+export async function GET(req) {
+  const url = new URL(req.url);
+  const token = url.searchParams.get("token");
+  if (!token || token !== process.env.REINDEX_TOKEN) {
+    return new NextResponse("Unauthorized", { status: 401 });
+  }
 
+  // TEMP: prove the blob token exists in runtime
+  if (url.searchParams.get("debug") === "1") {
+    return NextResponse.json({ hasBlobToken: !!process.env.BLOB_READ_WRITE_TOKEN });
+  }
 export async function GET(req) {
   const url = new URL(req.url);
   const token = url.searchParams.get("token");
