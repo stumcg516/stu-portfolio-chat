@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
-import { loadPlainTextDocs, chunkText } from "../../../lib/chunk";
-import { saveIndexJson } from "../../../lib/blob";
+import { loadPlainTextDocs, chunkText } from "../../../../lib/chunk";
+import { saveIndexJson } from "../../../../lib/blob";
 
 export const runtime = "nodejs";
 
