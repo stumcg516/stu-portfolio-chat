@@ -5,28 +5,40 @@ import { loadIndexJson } from "../../../lib/blob";
 
 export const runtime = "nodejs";
 
-// simple in-memory cache between requests
-let INDEX = null;
-let INDEX_LOADED_AT = 0;
+// in-memory cache (persists across requests on a warm function)
+let INDEX = globalThis.__STU_INDEX || null;
+let INDEX_LOADED_AT = globalThis.__STU_INDEX_LOADED_AT || 0;
 
-async function ensureIndexLoaded() {
+async function ensureIndexLoaded(force = false) {
   const FRESH_MS = 5 * 60 * 1000; // refresh every 5 min
-  const stale = !INDEX || (Date.now() - INDEX_LOADED_AT) > FRESH_MS;
+  const stale = force || !INDEX || (Date.now() - INDEX_LOADED_AT) > FRESH_MS;
   if (!stale) return INDEX;
 
   const arr = await loadIndexJson();
-  if (Array.isArray(arr) && arr.length > 0) {
+  if (Array.isArray(arr) && arr.length) {
     INDEX = arr;
     INDEX_LOADED_AT = Date.now();
+    globalThis.__STU_INDEX = INDEX;
+    globalThis.__STU_INDEX_LOADED_AT = INDEX_LOADED_AT;
     return INDEX;
   }
   return null;
 }
 
-export async function GET() {
-  return NextResponse.json({ ok: true, msg: "chat endpoint up" });
+// GET — health + optional refresh
+export async function GET(req) {
+  const url = new URL(req.url);
+  const refresh = url.searchParams.get("refresh") === "1";
+  const idx = await ensureIndexLoaded(refresh);
+  return NextResponse.json({
+    ok: true,
+    loaded: !!idx,
+    size: idx ? idx.length : 0,
+    refreshed: refresh,
+  });
 }
 
+// POST — answer a question using RAG over the loaded index
 export async function POST(req) {
   try {
     const { message } = await req.json();
@@ -38,50 +50,45 @@ export async function POST(req) {
     if (!index || index.length === 0) {
       return NextResponse.json({
         answer: "I don’t have my notes loaded yet. Try reindexing.",
-        sources: []
+        sources: [],
       });
     }
 
-    // naive top-k using cosine similarity
+    // embed question
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-    // get an embedding for the query
     const emb = await client.embeddings.create({
       model: "text-embedding-3-small",
-      input: message
+      input: message,
     });
     const q = emb.data[0].embedding;
 
     // cosine similarity
-    function dot(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; }
-    function norm(a) { return Math.sqrt(dot(a, a)); }
-    function cos(a, b) { return dot(a, b) / (norm(a) * norm(b) + 1e-9); }
+    const dot = (a,b)=>a.reduce((s,v,i)=>s+v*b[i],0);
+    const norm = a => Math.sqrt(dot(a,a));
+    const cos = (a,b) => dot(a,b) / (norm(a)*norm(b) + 1e-9);
 
-    const scored = index
+    const top = index
       .map(r => ({ ...r, score: cos(q, r.embedding) }))
-      .sort((a, b) => b.score - a.score)
+      .sort((a,b) => b.score - a.score)
       .slice(0, 5);
 
-    const context = scored.map(s => `• ${s.text}`).join("\n");
+    const context = top.map(s => `• ${s.text}`).join("\n");
     const system = `You are an assistant answering questions about Stu McGibbon.
-Use only the provided context when possible. If unsure, say you don't know. Keep answers concise.`;
+Use only the provided context when possible; if unsure, say you don't know. Keep answers concise.`;
 
     const chat = await client.chat.completions.create({
       model: "gpt-4o-mini",
+      temperature: 0.2,
       messages: [
         { role: "system", content: system },
-        { role: "user", content: `Question: ${message}\n\nContext:\n${context}` }
+        { role: "user", content: `Question: ${message}\n\nContext:\n${context}` },
       ],
-      temperature: 0.2
     });
 
     const answer = chat.choices[0]?.message?.content?.trim() || "Sorry, I’m not sure.";
-    const sources = scored.map(s => ({ id: s.id, source: s.source, score: Number(s.score.toFixed(3)) }));
-
+    const sources = top.map(s => ({ id: s.id, source: s.source, score: Number(s.score.toFixed(3)) }));
     return NextResponse.json({ answer, sources });
   } catch (err) {
-    const msg = (err && (err.message || err.toString())) || "Server error";
-    // Return a parsable error so the console test doesn't choke
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: String(err) }, { status: 500 });
   }
 }
