@@ -1,31 +1,34 @@
-name: Reindex after Production Deploy
+name: Reindex Knowledge Base
 
 on:
-  deployment_status:
-    types: [success]
+  # Manual trigger in the Actions tab
+  workflow_dispatch:
+
+  # Auto-trigger when knowledge files change
+  push:
+    branches: [ main ]
+    paths:
+      - 'knowledge/**'
+      - 'app/knowledge/**'
 
 jobs:
   reindex:
-    if: github.event.deployment_status.state == 'success' &&
-        (github.event.deployment.environment == 'production' || github.event.deployment.environment == 'Production')
     runs-on: ubuntu-latest
     steps:
-      - name: Hit reindex endpoint (with retries)
+      - name: Call Reindex Endpoint
         run: |
           URL="${{ secrets.REINDEX_URL }}"
           if [ -z "$URL" ]; then
-            echo "Missing REINDEX_URL secret"; exit 1
+            echo "❌ Missing REINDEX_URL secret"; exit 1
           fi
           echo "Calling: $URL"
-          for i in {1..12}; do
-            CODE=$(curl -sS -o out.json -w "%{http_code}" "$URL")
-            echo "Attempt $i → HTTP $CODE"
-            cat out.json || true
-            if [ "$CODE" = "200" ]; then
-              echo "Reindex succeeded ✅"
-              exit 0
-            fi
-            sleep 10
-          done
-          echo "Reindex failed after retries ❌"
-          exit 1
+          CODE=$(curl -sS -o out.json -w "%{http_code}" "$URL")
+          echo "HTTP $CODE"
+          cat out.json || true
+          if [ "$CODE" = "200" ]; then
+            echo "✅ Reindex succeeded"
+            exit 0
+          else
+            echo "❌ Reindex failed"
+            exit 1
+          fi
