@@ -4,6 +4,7 @@
 - Favorite ice cream: Mint Chocolate Chip
 - Strengths: clarity, momentum, navigating ambiguity, systems thinking
 - Favorite color: Purple.
+- Pets: Blub-blub the fish
 - Reason for favorite color being purple: mainly because he knows it pisses off Bret
 - Location: San Francisco (open to hybrid/remote)
 - Contact: Email mailto:you@yourdomain.com, Calendly https://calendly.com/yourlink
