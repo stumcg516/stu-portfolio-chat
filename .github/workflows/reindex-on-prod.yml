@@ -3,58 +3,56 @@ name: Reindex Knowledge Base
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:
 
 jobs:
   wait-and-reindex:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      REINDEX_BASE: ${{ secrets.REINDEX_BASE }}
+      REINDEX_TOKEN: ${{ secrets.REINDEX_TOKEN }}
 
     steps:
       - name: Validate required secrets
         run: |
-          [ -n "${{ secrets.VERCEL_TOKEN }}" ] || (echo "Missing secret: VERCEL_TOKEN" && exit 1)
-          [ -n "${{ secrets.VERCEL_PROJECT_ID }}" ] || (echo "Missing secret: VERCEL_PROJECT_ID" && exit 1)
-          [ -n "${{ secrets.REINDEX_URL }}" ] || (echo "Missing secret: REINDEX_URL" && exit 1)
+          test -n "${VERCEL_TOKEN}" || (echo "Missing VERCEL_TOKEN" && exit 1)
+          test -n "${VERCEL_PROJECT_ID}" || (echo "Missing VERCEL_PROJECT_ID" && exit 1)
+          test -n "${REINDEX_BASE}" || (echo "Missing REINDEX_BASE" && exit 1)
+          test -n "${REINDEX_TOKEN}" || (echo "Missing REINDEX_TOKEN" && exit 1)
 
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
       - name: Wait for latest Vercel deployment to be READY
-        id: wait
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
-          set -e
-          echo "Polling Vercel for READY deployment..."
-          ATTEMPTS=0
-          MAX_ATTEMPTS=90  # ~15 minutes at 10s per check
-          while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
-            RESP=$(curl -sS -H "Authorization: Bearer $VERCEL_TOKEN" \
-              "https://api.vercel.com/v6/deployments?projectId=$VERCEL_PROJECT_ID&limit=1")
-            STATE=$(echo "$RESP" | jq -r '.deployments[0].state // .deployments[0].readyState')
-            URL=$(echo "$RESP" | jq -r '.deployments[0].url')
-            echo "Latest deployment state: $STATE (url: $URL)"
-            if [ "$STATE" = "READY" ]; then
-              echo "ready_url=https://$URL" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          echo "Waiting for latest production deployment to be READY…"
+          for i in {1..30}; do
+            url="https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}&limit=1&state=READY&target=production"
+            res=$(curl -sS -H "Authorization: Bearer ${VERCEL_TOKEN}" "$url")
+            count=$(echo "$res" | jq '.deployments | length')
+            if [ "$count" -ge 1 ]; then
+              echo "Found READY deployment."
               break
             fi
-            ATTEMPTS=$((ATTEMPTS+1))
-            sleep 10
+            echo "Not ready yet… attempt $i"
+            sleep 5
           done
-          if [ $ATTEMPTS -ge $MAX_ATTEMPTS ]; then
-            echo "Timed out waiting for Vercel to be READY"; exit 1
-          fi
 
-      - name: Call reindex endpoint
-        env:
-          REINDEX_URL: ${{ secrets.REINDEX_URL }}
+      - name: Call reindex endpoint (token url-encoded)
         run: |
-          echo "Calling: $REINDEX_URL"
-          HTTP=$(curl -sS -w "%{http_code}" -o /tmp/reindex.json "$REINDEX_URL")
-          echo "HTTP: $HTTP"
-          cat /tmp/reindex.json || true
-          test "$HTTP" -ge 200 -a "$HTTP" -lt 300 || { echo "Reindex failed"; exit 1; }
+          set -euo pipefail
+          echo "Calling: ${REINDEX_BASE}?token=***"
+          resp=$(curl -sS -G "${REINDEX_BASE}" --data-urlencode "token=${REINDEX_TOKEN}")
+          echo "$resp" | tee /tmp/reindex.json
+          # require { ok: true } from your route
+          echo "$resp" | jq -e '.ok == true' >/dev/null
 
       - name: Summary
-        run: echo "Reindexed after deployment at ${{ steps.wait.outputs.ready_url }}"
+        if: always()
+        run: |
+          echo "---- reindex response ----"
+          cat /tmp/reindex.json || true
+
