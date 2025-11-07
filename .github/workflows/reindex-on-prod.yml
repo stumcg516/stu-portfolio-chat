@@ -1,0 +1,31 @@
+name: Reindex after Production Deploy
+
+on:
+  deployment_status:
+    types: [success]
+
+jobs:
+  reindex:
+    if: github.event.deployment_status.state == 'success' &&
+        (github.event.deployment.environment == 'production' || github.event.deployment.environment == 'Production')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit reindex endpoint (with retries)
+        run: |
+          URL="${{ secrets.REINDEX_URL }}"
+          if [ -z "$URL" ]; then
+            echo "Missing REINDEX_URL secret"; exit 1
+          fi
+          echo "Calling: $URL"
+          for i in {1..12}; do
+            CODE=$(curl -sS -o out.json -w "%{http_code}" "$URL")
+            echo "Attempt $i → HTTP $CODE"
+            cat out.json || true
+            if [ "$CODE" = "200" ]; then
+              echo "Reindex succeeded ✅"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Reindex failed after retries ❌"
+          exit 1
