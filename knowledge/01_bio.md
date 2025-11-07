@@ -9,3 +9,4 @@
 - Location: San Francisco (open to hybrid/remote)
 - Contact: Email mailto:you@yourdomain.com, Calendly https://calendly.com/yourlink
 - Sign: Taurus
+- Rising sign: gatorade
