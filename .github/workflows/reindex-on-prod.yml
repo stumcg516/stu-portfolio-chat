@@ -1,73 +1,60 @@
 name: Reindex Knowledge Base
 
 on:
-  workflow_dispatch:            # manual fallback in Actions tab
-  push:                         # auto when knowledge changes on main
+  push:
     branches: [ main ]
-    paths:
-      - 'knowledge/**'
-      - 'app/knowledge/**'
+  workflow_dispatch:
 
 jobs:
   wait-and-reindex:
     runs-on: ubuntu-latest
-    env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}   # optional if using a team
-      REINDEX_URL: ${{ secrets.REINDEX_URL }}
-      GIT_SHA: ${{ github.sha }}
 
     steps:
-      - name: Check required secrets
+      - name: Validate required secrets
         run: |
-          test -n "$VERCEL_TOKEN" || (echo "Missing VERCEL_TOKEN" && exit 1)
-          test -n "$VERCEL_PROJECT_ID" || (echo "Missing VERCEL_PROJECT_ID" && exit 1)
-          test -n "$REINDEX_URL" || (echo "Missing REINDEX_URL" && exit 1)
-          echo "✅ Secrets present"
+          [ -n "${{ secrets.VERCEL_TOKEN }}" ] || (echo "Missing secret: VERCEL_TOKEN" && exit 1)
+          [ -n "${{ secrets.VERCEL_PROJECT_ID }}" ] || (echo "Missing secret: VERCEL_PROJECT_ID" && exit 1)
+          [ -n "${{ secrets.REINDEX_URL }}" ] || (echo "Missing secret: REINDEX_URL" && exit 1)
 
-      - name: Wait for Vercel deployment (this commit) to be READY
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Wait for latest Vercel deployment to be READY
+        id: wait
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
-          TEAM_QS=""
-          if [ -n "$VERCEL_TEAM_ID" ]; then
-            TEAM_QS="&teamId=${VERCEL_TEAM_ID}"
-          fi
-
-          echo "Polling Vercel for commit $GIT_SHA"
-          for i in {1..60}; do
+          set -e
+          echo "Polling Vercel for READY deployment..."
+          ATTEMPTS=0
+          MAX_ATTEMPTS=90  # ~15 minutes at 10s per check
+          while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
             RESP=$(curl -sS -H "Authorization: Bearer $VERCEL_TOKEN" \
-              "https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}${TEAM_QS}&limit=20")
-
-            MATCH=$(echo "$RESP" | jq -r --arg SHA "$GIT_SHA" '
-              .deployments[]?
-              | select((.meta."githubCommitSha" == $SHA) and (.state == "READY"))
-              | .uid' | head -n1)
-
-            if [ -n "$MATCH" ]; then
-              echo "Deployment READY: $MATCH"
+              "https://api.vercel.com/v6/deployments?projectId=$VERCEL_PROJECT_ID&limit=1")
+            STATE=$(echo "$RESP" | jq -r '.deployments[0].state // .deployments[0].readyState')
+            URL=$(echo "$RESP" | jq -r '.deployments[0].url')
+            echo "Latest deployment state: $STATE (url: $URL)"
+            if [ "$STATE" = "READY" ]; then
+              echo "ready_url=https://$URL" >> $GITHUB_OUTPUT
               break
             fi
-            echo "Not ready yet, sleeping 10s… (attempt $i/60)"
+            ATTEMPTS=$((ATTEMPTS+1))
             sleep 10
           done
-
-          if [ -z "$MATCH" ]; then
-            echo "❌ Timed out waiting for Vercel to be READY"
-            exit 1
+          if [ $ATTEMPTS -ge $MAX_ATTEMPTS ]; then
+            echo "Timed out waiting for Vercel to be READY"; exit 1
           fi
-          echo "✅ Vercel is READY"
 
-      - name: Reindex (with small retry)
+      - name: Call reindex endpoint
+        env:
+          REINDEX_URL: ${{ secrets.REINDEX_URL }}
         run: |
-          for i in {1..5}; do
-            CODE=$(curl -sS -o out.json -w "%{http_code}" "$REINDEX_URL")
-            echo "Attempt $i → HTTP $CODE"
-            cat out.json || true
-            if [ "$CODE" = "200" ]; then
-              echo "✅ Reindex succeeded"
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "❌ Reindex failed after retries"
-          exit 1
+          echo "Calling: $REINDEX_URL"
+          HTTP=$(curl -sS -w "%{http_code}" -o /tmp/reindex.json "$REINDEX_URL")
+          echo "HTTP: $HTTP"
+          cat /tmp/reindex.json || true
+          test "$HTTP" -ge 200 -a "$HTTP" -lt 300 || { echo "Reindex failed"; exit 1; }
+
+      - name: Summary
+        run: echo "Reindexed after deployment at ${{ steps.wait.outputs.ready_url }}"
