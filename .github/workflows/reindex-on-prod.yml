@@ -1,34 +1,73 @@
 name: Reindex Knowledge Base
 
 on:
-  # Manual trigger in the Actions tab
-  workflow_dispatch:
-
-  # Auto-trigger when knowledge files change
-  push:
+  workflow_dispatch:            # manual fallback in Actions tab
+  push:                         # auto when knowledge changes on main
     branches: [ main ]
     paths:
       - 'knowledge/**'
       - 'app/knowledge/**'
 
 jobs:
-  reindex:
+  wait-and-reindex:
     runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}   # optional if using a team
+      REINDEX_URL: ${{ secrets.REINDEX_URL }}
+      GIT_SHA: ${{ github.sha }}
+
     steps:
-      - name: Call Reindex Endpoint
+      - name: Check required secrets
         run: |
-          URL="${{ secrets.REINDEX_URL }}"
-          if [ -z "$URL" ]; then
-            echo "❌ Missing REINDEX_URL secret"; exit 1
+          test -n "$VERCEL_TOKEN" || (echo "Missing VERCEL_TOKEN" && exit 1)
+          test -n "$VERCEL_PROJECT_ID" || (echo "Missing VERCEL_PROJECT_ID" && exit 1)
+          test -n "$REINDEX_URL" || (echo "Missing REINDEX_URL" && exit 1)
+          echo "✅ Secrets present"
+
+      - name: Wait for Vercel deployment (this commit) to be READY
+        run: |
+          TEAM_QS=""
+          if [ -n "$VERCEL_TEAM_ID" ]; then
+            TEAM_QS="&teamId=${VERCEL_TEAM_ID}"
           fi
-          echo "Calling: $URL"
-          CODE=$(curl -sS -o out.json -w "%{http_code}" "$URL")
-          echo "HTTP $CODE"
-          cat out.json || true
-          if [ "$CODE" = "200" ]; then
-            echo "✅ Reindex succeeded"
-            exit 0
-          else
-            echo "❌ Reindex failed"
+
+          echo "Polling Vercel for commit $GIT_SHA"
+          for i in {1..60}; do
+            RESP=$(curl -sS -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}${TEAM_QS}&limit=20")
+
+            MATCH=$(echo "$RESP" | jq -r --arg SHA "$GIT_SHA" '
+              .deployments[]?
+              | select((.meta."githubCommitSha" == $SHA) and (.state == "READY"))
+              | .uid' | head -n1)
+
+            if [ -n "$MATCH" ]; then
+              echo "Deployment READY: $MATCH"
+              break
+            fi
+            echo "Not ready yet, sleeping 10s… (attempt $i/60)"
+            sleep 10
+          done
+
+          if [ -z "$MATCH" ]; then
+            echo "❌ Timed out waiting for Vercel to be READY"
             exit 1
           fi
+          echo "✅ Vercel is READY"
+
+      - name: Reindex (with small retry)
+        run: |
+          for i in {1..5}; do
+            CODE=$(curl -sS -o out.json -w "%{http_code}" "$REINDEX_URL")
+            echo "Attempt $i → HTTP $CODE"
+            cat out.json || true
+            if [ "$CODE" = "200" ]; then
+              echo "✅ Reindex succeeded"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "❌ Reindex failed after retries"
+          exit 1
