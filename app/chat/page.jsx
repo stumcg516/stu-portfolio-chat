@@ -2,176 +2,384 @@
 
 import { useEffect, useRef, useState } from "react";
 
-// Lightweight bubble
-function Bubble({ role, children }) {
+// Simple message shape
+function Bubble({ role, content, onCopy }) {
   const isUser = role === "user";
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"} w-full`}>
-      <div
-        className={`max-w-[80%] whitespace-pre-wrap rounded-2xl px-4 py-2 text-sm leading-relaxed shadow
-          ${isUser ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-900"}`}
-      >
-        {children}
+    <div className={`msg ${isUser ? "user" : "bot"}`}>
+      <div className="avatar">{isUser ? "🧑‍💻" : "🤖"}</div>
+      <div className="bubble">
+        <div className="content">{content}</div>
+        {!isUser && (
+          <button className="copy" onClick={onCopy} title="Copy answer">
+            ⧉
+          </button>
+        )}
       </div>
+      <style jsx>{`
+        .msg {
+          display: grid;
+          grid-template-columns: 36px 1fr;
+          gap: 10px;
+          align-items: flex-start;
+          margin-bottom: 14px;
+        }
+        .avatar {
+          width: 36px;
+          height: 36px;
+          border-radius: 12px;
+          display: grid;
+          place-items: center;
+          background: var(--card);
+          box-shadow: var(--shadow);
+          font-size: 18px;
+        }
+        .bubble {
+          position: relative;
+          background: ${isUser ? "var(--user)" : "var(--card)"};
+          color: ${isUser ? "var(--userText)" : "inherit"};
+          border: 1px solid var(--hairline);
+          padding: 12px 14px;
+          border-radius: 14px;
+          box-shadow: var(--shadow);
+        }
+        .content {
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
+        .copy {
+          position: absolute;
+          right: 8px;
+          bottom: 8px;
+          border: 0;
+          background: transparent;
+          cursor: pointer;
+          opacity: 0.6;
+        }
+        .copy:hover {
+          opacity: 1;
+        }
+      `}</style>
     </div>
   );
 }
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState([]); // {role, content, sources?}
+  const [messages, setMessages] = useState([
+    {
+      role: "assistant",
+      content:
+        "Hi! I’m the concierge for Stu’s portfolio. Ask about projects, strengths, or anything on this site.",
+    },
+  ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const endRef = useRef(null);
+  const listRef = useRef(null);
+  const abortRef = useRef(null);
 
-  // autoscroll to last message
+  // Auto scroll to bottom
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
 
-  async function send(e) {
-    e?.preventDefault?.();
-    const question = input.trim();
-    if (!question || loading) return;
-
-    // push user message
-    setMessages((m) => [...m, { role: "user", content: question }]);
-    setInput("");
+  async function sendMessage(text) {
+    const user = { role: "user", content: text.trim() };
+    const assistant = { role: "assistant", content: "" };
+    setMessages((m) => [...m, user, assistant]);
     setLoading(true);
 
     try {
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: question }),
+        body: JSON.stringify({ message: text }),
+        signal: controller.signal,
       });
 
-      // Prepare an empty assistant message we can stream into
-      let assistantIndex;
-      setMessages((prev) => {
-        assistantIndex = prev.length;
-        return [...prev, { role: "assistant", content: "" }];
-      });
+      if (!res.body) throw new Error("No response body");
 
-      // Try streaming first (e.g., text/plain or text/event-stream)
-      const ct = res.headers.get("content-type") || "";
-      if (res.body && (ct.includes("text") || ct.includes("event-stream"))) {
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let done = false;
-        while (!done) {
-          const { value, done: d } = await reader.read();
-          done = d;
-          if (value) {
-            const chunk = decoder.decode(value, { stream: true });
-            setMessages((prev) => {
-              const copy = [...prev];
-              copy[assistantIndex] = {
-                ...copy[assistantIndex],
-                content: (copy[assistantIndex].content || "") + chunk,
-              };
-              return copy;
-            });
-          }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+
+      while (!done) {
+        const { value, done: d } = await reader.read();
+        done = d;
+        if (value) {
+          const chunk = decoder.decode(value);
+          setMessages((m) => {
+            const copy = [...m];
+            copy[copy.length - 1] = {
+              ...copy[copy.length - 1],
+              content: copy[copy.length - 1].content + chunk,
+            };
+            return copy;
+          });
         }
-      } else {
-        // Fallback to JSON shape: { answer: string, sources?: [] }
-        const data = await res.json().catch(() => ({}));
-        const text =
-          typeof data?.answer === "string"
-            ? data.answer
-            : (await res.text?.()) || "⚠️ No response.";
-        setMessages((prev) => {
-          const copy = [...prev];
-          copy[assistantIndex] = {
-            role: "assistant",
-            content: text,
-            sources: data?.sources || [],
-          };
-          return copy;
-        });
       }
     } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: `Error: ${err?.message || err}` },
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", content: "Sorry — I hit an error. Try again in a moment." },
       ]);
     } finally {
       setLoading(false);
+      abortRef.current = null;
     }
   }
 
-  // Enter to send, Shift+Enter for newline
-  function onKeyDown(e) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      send(e);
-    }
+  function onSubmit(e) {
+    e.preventDefault();
+    if (!input.trim() || loading) return;
+    const text = input;
+    setInput("");
+    sendMessage(text);
+  }
+
+  function onStop() {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setLoading(false);
+  }
+
+  function quickAsk(q) {
+    setInput(q);
+    // tiny delay so input renders before submit
+    setTimeout(() => {
+      const form = document.getElementById("chat-form");
+      form?.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+    }, 0);
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 text-gray-900">
-      <div className="mx-auto flex max-w-3xl flex-col px-4 py-6">
-        <header className="mb-4 flex items-center justify-between">
-          <h1 className="text-xl font-semibold">💬 Stu’s Portfolio Chat</h1>
-          <a
-            href="/"
-            className="text-sm text-blue-600 hover:underline"
-            aria-label="Go home"
-          >
-            Home
-          </a>
-        </header>
+    <main className="wrap">
+      <header className="header">
+        <div className="title">
+          <span className="logo">💬</span> Stu’s Portfolio Chat
+        </div>
+        <a className="home" href="/">Home</a>
+      </header>
 
-        <section className="flex-1 rounded-2xl border bg-white p-4 shadow-sm">
-          <div className="mb-3 h-[60vh] overflow-y-auto space-y-3 pr-1">
-            {messages.length === 0 && (
-              <div className="text-center text-gray-400 text-sm mt-20">
-                Ask about Stu’s background, strengths, and projects.
-                <br />
-                Examples: “Who is Stu McGibbon?” • “What are Stu’s strengths as a designer?”
-              </div>
-            )}
+      <section className="panel">
+        <div className="hints">
+          <span className="hint-label">Try:</span>
+          <button onClick={() => quickAsk("Who is Stu McGibbon?")}>Who is Stu McGibbon?</button>
+          <button onClick={() => quickAsk("What are Stu’s strengths as a designer?")}>
+            Strengths
+          </button>
+          <button onClick={() => quickAsk("Tell me about a project Stu led end-to-end.")}>
+            Project overview
+          </button>
+        </div>
 
-            {messages.map((m, i) => (
-              <div key={i} className="space-y-1">
-                <Bubble role={m.role}>{m.content}</Bubble>
-                {m.sources?.length ? (
-                  <div className="ml-2 text-xs text-gray-500">
-                    Sources:{" "}
-                    {m.sources.map((s, j) => (
-                      <span key={j} className="mr-2">
-                        {s.source || s.id || `#${j + 1}`}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ))}
-
-            {loading && (
-              <div className="text-xs italic text-gray-400">Thinking…</div>
-            )}
-            <div ref={endRef} />
-          </div>
-
-          <form onSubmit={send} className="flex gap-2">
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={onKeyDown}
-              rows={1}
-              placeholder="Ask a question… (Enter to send, Shift+Enter for newline)"
-              className="flex-1 resize-none rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+        <div className="messages" ref={listRef}>
+          {messages.map((m, i) => (
+            <Bubble
+              key={i}
+              role={m.role}
+              content={m.content}
+              onCopy={() => navigator.clipboard.writeText(m.content)}
             />
-            <button
-              type="submit"
-              disabled={loading || !input.trim()}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-white shadow hover:bg-blue-700 disabled:opacity-50"
-            >
-              Send
-            </button>
-          </form>
-        </section>
-      </div>
+          ))}
+          {loading && (
+            <div className="typing">
+              <div className="dot" />
+              <div className="dot" />
+              <div className="dot" />
+            </div>
+          )}
+        </div>
+
+        <form id="chat-form" className="composer" onSubmit={onSubmit}>
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask a question… (Enter to send, Shift+Enter for newline)"
+            disabled={loading}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                (e.currentTarget.form as HTMLFormElement)?.requestSubmit();
+              }
+            }}
+          />
+          <div className="actions">
+            {loading ? (
+              <button type="button" className="secondary" onClick={onStop}>
+                Stop
+              </button>
+            ) : (
+              <button type="submit">Send</button>
+            )}
+          </div>
+        </form>
+      </section>
+
+      <style jsx>{`
+        :root {
+          --bg: #0b0c0f;
+          --fg: #e9eef6;
+          --muted: #98a2b3;
+          --card: rgba(255, 255, 255, 0.06);
+          --hairline: rgba(255, 255, 255, 0.12);
+          --user: #2563eb;
+          --userText: #ffffff;
+          --shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+          --focus: 0 0 0 3px rgba(37, 99, 235, 0.35);
+        }
+        @media (prefers-color-scheme: light) {
+          :root {
+            --bg: #f6f7fb;
+            --fg: #0b1220;
+            --muted: #5b6473;
+            --card: #ffffff;
+            --hairline: rgba(19, 29, 52, 0.08);
+            --user: #2563eb;
+            --userText: #ffffff;
+            --shadow: 0 8px 24px rgba(12, 22, 44, 0.08);
+          }
+        }
+        * { box-sizing: border-box; }
+        html, body, .wrap { height: 100%; }
+        body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+
+        .wrap {
+          max-width: 900px;
+          margin: 0 auto;
+          padding: 28px 16px 22px;
+          display: grid;
+          grid-template-rows: auto 1fr;
+          gap: 18px;
+        }
+
+        .header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+        .title {
+          font-weight: 700;
+          font-size: 22px;
+          letter-spacing: 0.3px;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .logo {
+          display: grid;
+          place-items: center;
+          width: 34px;
+          height: 34px;
+          border-radius: 10px;
+          background: var(--card);
+          box-shadow: var(--shadow);
+        }
+        .home {
+          color: var(--muted);
+          text-decoration: none;
+          border: 1px solid var(--hairline);
+          padding: 8px 10px;
+          border-radius: 10px;
+          background: var(--card);
+        }
+        .home:hover { color: var(--fg); }
+
+        .panel {
+          display: grid;
+          grid-template-rows: auto 1fr auto;
+          gap: 12px;
+          background: var(--card);
+          border: 1px solid var(--hairline);
+          border-radius: 16px;
+          box-shadow: var(--shadow);
+          overflow: hidden;
+        }
+
+        .hints {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+          padding: 12px 12px 0;
+        }
+        .hint-label {
+          color: var(--muted);
+          margin-right: 4px;
+          align-self: center;
+        }
+        .hints button {
+          border: 1px solid var(--hairline);
+          background: transparent;
+          color: var(--fg);
+          border-radius: 999px;
+          padding: 6px 10px;
+          cursor: pointer;
+        }
+        .hints button:hover {
+          background: rgba(255,255,255,0.06);
+        }
+
+        .messages {
+          padding: 14px 14px 6px;
+          overflow: auto;
+          min-height: 280px;
+          max-height: calc(100vh - 280px);
+        }
+
+        .composer {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 8px;
+          padding: 12px;
+          border-top: 1px solid var(--hairline);
+          background: linear-gradient(180deg, transparent, rgba(0,0,0,0.03));
+        }
+        .composer input {
+          width: 100%;
+          resize: none;
+          padding: 12px 14px;
+          border-radius: 12px;
+          border: 1px solid var(--hairline);
+          background: #ffffff0d;
+          color: var(--fg);
+          outline: none;
+        }
+        .composer input:focus { box-shadow: var(--focus); }
+        .actions {
+          display: flex; gap: 8px;
+        }
+        button {
+          border: 0;
+          background: var(--user);
+          color: #fff;
+          padding: 12px 14px;
+          border-radius: 12px;
+          cursor: pointer;
+          box-shadow: var(--shadow);
+        }
+        button.secondary {
+          background: #6b7280;
+        }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .typing {
+          display: flex;
+          gap: 6px;
+          padding: 10px 14px 18px;
+        }
+        .dot {
+          width: 8px; height: 8px; border-radius: 999px; background: var(--muted);
+          animation: bounce 1s infinite ease-in-out;
+        }
+        .dot:nth-child(2) { animation-delay: 0.15s }
+        .dot:nth-child(3) { animation-delay: 0.3s }
+        @keyframes bounce {
+          0%, 80%, 100% { transform: translateY(0); opacity: 0.5; }
+          40% { transform: translateY(-4px); opacity: 1; }
+        }
+      `}</style>
     </main>
   );
 }
