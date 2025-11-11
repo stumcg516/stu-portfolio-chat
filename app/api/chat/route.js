@@ -6,13 +6,13 @@ import { loadIndexJson } from "../../../lib/blob";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// in-memory cache (persists across requests on a warm function)
+// ---- Warm-function in-memory cache of the vector index
 let INDEX = globalThis.__STU_INDEX || null;
 let INDEX_LOADED_AT = globalThis.__STU_INDEX_LOADED_AT || 0;
 
 async function ensureIndexLoaded(force = false) {
-  const FRESH_MS = 5 * 60 * 1000; // refresh every 5 min
-  const stale = force || !INDEX || (Date.now() - INDEX_LOADED_AT) > FRESH_MS;
+  const FRESH_MS = 5 * 60 * 1000; // reload every 5 minutes
+  const stale = force || !INDEX || Date.now() - INDEX_LOADED_AT > FRESH_MS;
   if (!stale) return INDEX;
 
   const arr = await loadIndexJson();
@@ -36,6 +36,7 @@ export async function GET(req) {
     loaded: !!idx,
     size: idx ? idx.length : 0,
     refreshed: refresh,
+    loadedAt: INDEX_LOADED_AT || null,
   });
 }
 
@@ -55,27 +56,46 @@ export async function POST(req) {
       });
     }
 
-    // embed question
+    // ---- Embed question (use the larger model for slightly better ranking)
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const emb = await client.embeddings.create({
-      model: "text-embedding-3-small",
+      model: "text-embedding-3-large",
       input: message,
     });
     const q = emb.data[0].embedding;
 
-    // cosine similarity
-    const dot = (a,b)=>a.reduce((s,v,i)=>s+v*b[i],0);
-    const norm = a => Math.sqrt(dot(a,a));
-    const cos = (a,b) => dot(a,b) / (norm(a)*norm(b) + 1e-9);
+    // ---- Cosine similarity helpers
+    const dot = (a, b) => a.reduce((s, v, i) => s + v * b[i], 0);
+    const norm = (a) => Math.sqrt(dot(a, a));
+    const cos = (a, b) => dot(a, b) / (norm(a) * norm(b) + 1e-9);
 
-    const top = index
-      .map(r => ({ ...r, score: cos(q, r.embedding) }))
-      .sort((a,b) => b.score - a.score)
-      .slice(0, 5);
+    // ---- Rank and filter low-confidence hits
+    const ranked = index
+      .map((r) => ({ ...r, score: cos(q, r.embedding) }))
+      .sort((a, b) => b.score - a.score);
 
-    const context = top.map(s => `• ${s.text}`).join("\n");
+    const MIN_SIM = 0.35; // raise to 0.40 if you still see off-topic sources
+    const TOP_K = 3;
+
+    const top = ranked.filter((r) => r.score >= MIN_SIM).slice(0, TOP_K);
+
+    if (top.length === 0) {
+      return NextResponse.json({
+        answer:
+          "I don’t have enough information in my notes to answer that confidently.",
+        sources: [],
+      });
+    }
+
+    // ---- Build compact context from only the filtered hits
+    const context = top
+      .map((s) => `Source: ${s.source}\n${s.text}`)
+      .join("\n\n---\n\n");
+
+    // ---- System: plain text only (no Markdown), concise, cite only provided context
     const system = `You are an assistant answering questions about Stu McGibbon.
-Use only the provided context when possible; if unsure, make something up. Keep answers concise.`;
+Use only the provided context. If the context does not contain an answer, say you don't know.
+Respond in plain text only (no Markdown, no **bold**, no lists). Keep answers concise.`;
 
     const chat = await client.chat.completions.create({
       model: "gpt-4o-mini",
@@ -86,8 +106,19 @@ Use only the provided context when possible; if unsure, make something up. Keep 
       ],
     });
 
-    const answer = chat.choices[0]?.message?.content?.trim() || "Sorry, I’m not sure.";
-    const sources = top.map(s => ({ id: s.id, source: s.source, score: Number(s.score.toFixed(3)) }));
+    // ---- Cleanup: strip any Markdown the model might still emit
+    const raw = chat.choices[0]?.message?.content?.trim() || "Sorry, I’m not sure.";
+    const answer = raw
+      .replace(/\*\*(.*?)\*\*/g, "$1")
+      .replace(/__([^_]+)__/g, "$1")
+      .replace(/`([^`]+)`/g, "$1");
+
+    const sources = top.map((s) => ({
+      id: s.id,
+      source: s.source,
+      score: Number(s.score.toFixed(2)),
+    }));
+
     return NextResponse.json({ answer, sources });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
