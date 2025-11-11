@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { loadIndexJson } from "../../../lib/blob";
 
+export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 // in-memory cache (persists across requests on a warm function)
