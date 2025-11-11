@@ -6,12 +6,12 @@ import { loadIndexJson } from "../../../lib/blob";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// ---- Warm-function in-memory cache of the vector index
+// --- simple warm-function cache for the vector index
 let INDEX = globalThis.__STU_INDEX || null;
 let INDEX_LOADED_AT = globalThis.__STU_INDEX_LOADED_AT || 0;
 
 async function ensureIndexLoaded(force = false) {
-  const FRESH_MS = 5 * 60 * 1000; // reload every 5 minutes
+  const FRESH_MS = 5 * 60 * 1000; // refresh every 5 minutes
   const stale = force || !INDEX || Date.now() - INDEX_LOADED_AT > FRESH_MS;
   if (!stale) return INDEX;
 
@@ -36,7 +36,6 @@ export async function GET(req) {
     loaded: !!idx,
     size: idx ? idx.length : 0,
     refreshed: refresh,
-    loadedAt: INDEX_LOADED_AT || null,
   });
 }
 
@@ -56,47 +55,39 @@ export async function POST(req) {
       });
     }
 
-    // ---- Embed question (use the larger model for slightly better ranking)
+    // --- embed the question
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const emb = await client.embeddings.create({
-      model: "text-embedding-3-large",
+      model: "text-embedding-3-small",
       input: message,
     });
     const q = emb.data[0].embedding;
 
-    // ---- Cosine similarity helpers
+    // --- cosine similarity helpers
     const dot = (a, b) => a.reduce((s, v, i) => s + v * b[i], 0);
     const norm = (a) => Math.sqrt(dot(a, a));
     const cos = (a, b) => dot(a, b) / (norm(a) * norm(b) + 1e-9);
 
-    // ---- Rank and filter low-confidence hits
+    // --- rank all chunks by similarity
     const ranked = index
       .map((r) => ({ ...r, score: cos(q, r.embedding) }))
       .sort((a, b) => b.score - a.score);
 
-    const MIN_SIM = 0.35; // raise to 0.40 if you still see off-topic sources
-    const TOP_K = 3;
+    // Use top-K for reasoning (no filtering here so we don't lose weak-but-useful context)
+    const TOP_K = 5;
+    const top = ranked.slice(0, TOP_K);
 
-    const top = ranked.filter((r) => r.score >= MIN_SIM).slice(0, TOP_K);
-
-    if (top.length === 0) {
-      return NextResponse.json({
-        answer:
-          "I don’t have enough information in my notes to answer that confidently.",
-        sources: [],
-      });
-    }
-
-    // ---- Build compact context from only the filtered hits
+    // Build the context that goes to the model
     const context = top
       .map((s) => `Source: ${s.source}\n${s.text}`)
       .join("\n\n---\n\n");
 
-    // ---- System: plain text only (no Markdown), concise, cite only provided context
+    // System message — no markdown in answers to avoid **bold** artifacts
     const system = `You are an assistant answering questions about Stu McGibbon.
 Use only the provided context. If the context does not contain an answer, say you don't know.
 Respond in plain text only (no Markdown, no **bold**, no lists). Keep answers concise.`;
 
+    // --- call the model
     const chat = await client.chat.completions.create({
       model: "gpt-4o-mini",
       temperature: 0.2,
@@ -106,18 +97,22 @@ Respond in plain text only (no Markdown, no **bold**, no lists). Keep answers co
       ],
     });
 
-    // ---- Cleanup: strip any Markdown the model might still emit
+    // Normalize/strip any markdown the model might return anyway
     const raw = chat.choices[0]?.message?.content?.trim() || "Sorry, I’m not sure.";
     const answer = raw
       .replace(/\*\*(.*?)\*\*/g, "$1")
       .replace(/__([^_]+)__/g, "$1")
       .replace(/`([^`]+)`/g, "$1");
 
-    const sources = top.map((s) => ({
-      id: s.id,
-      source: s.source,
-      score: Number(s.score.toFixed(2)),
-    }));
+    // For the UI: only show sources above a similarity floor (but we still *used* all top-K)
+    const SOURCE_MIN_SIM = 0.25; // tweak 0.25–0.30 to taste
+    const sources = top
+      .filter((s) => s.score >= SOURCE_MIN_SIM)
+      .map((s) => ({
+        id: s.id,
+        source: s.source,
+        score: Number(s.score.toFixed(2)),
+      }));
 
     return NextResponse.json({ answer, sources });
   } catch (err) {
