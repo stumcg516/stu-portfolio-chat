@@ -81,16 +81,17 @@ export async function POST(req) {
     const context = top
       .map((s) => `Source: ${s.source}\n${s.text}`)
       .join("\n\n---\n\n");
+    
+    // System message — friendlier, more conversational tone without making things up
+const system = `You are a warm, conversational assistant that helps visitors learn about Stu McGibbon — his background, work, and design philosophy.
+Use the provided context as your factual source. If the context doesn’t include an answer, you can reply naturally (e.g., "I’m not totally sure about that, but I can tell you about...") instead of saying “I don’t know.”
+Be concise, helpful, and friendly — like a portfolio site concierge. Never invent factual details beyond the provided context.`;
 
-    // System message — no markdown in answers to avoid **bold** artifacts
-    const system = `You are an assistant answering questions about Stu McGibbon.
-Use only the provided context. If the context does not contain an answer, say you don't know.
-Respond in plain text only (no Markdown, no **bold**, no lists). Keep answers concise.`;
 
     // --- call the model
     const chat = await client.chat.completions.create({
       model: "gpt-4o-mini",
-      temperature: 0.2,
+      temperature: 0.4,
       messages: [
         { role: "system", content: system },
         { role: "user", content: `Question: ${message}\n\nContext:\n${context}` },
