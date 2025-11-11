@@ -4,9 +4,8 @@
 - Favorite ice cream: Mint Chocolate Chip
 - Strengths: clarity, momentum, navigating ambiguity, systems thinking
 - Favorite color: Purple.
-- Pets: Blub-blub the fish
-- Reason for favorite color being purple: mainly because he knows it pisses off Bret
+- Pets: 2 dogs - a border collie named Kirrie, and a border collie named Bailey. Growing up he had a pet fish named Blub-blub. 
 - Location: San Francisco (open to hybrid/remote)
-- Contact: Email mailto:you@yourdomain.com, Calendly https://calendly.com/yourlink
+- Contact: Email stu@mcgibbon.com, linkedin https://www.linkedin.com/in/stu-mcgibbon/ 
 - Sign: Taurus
 - Rising sign: gatorade
