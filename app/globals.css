@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---- App baseline styling (safe, minimal) ---- */
+:root {
+  color-scheme: dark;
+}
+
+html, body, #__next {
+  height: 100%;
+}
+
+body {
+  @apply bg-surface text-text antialiased;
+}
+
+/* Scrollbar (nice but subtle) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2D3142 transparent;
+}
+
+::-webkit-scrollbar {
+  height: 12px;
+  width: 12px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: #2D3142;
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+/* Prose-style markdown (optional, handy for answers) */
+.prose-chat p { @apply leading-7 text-[15px] text-text; }
+.prose-chat a { @apply text-brand-400 underline decoration-brand-400/30 hover:decoration-brand-400; }
+.prose-chat ul { @apply list-disc pl-6; }
+.prose-chat ol { @apply list-decimal pl-6; }
+.prose-chat code { @apply rounded bg-border/40 px-1 py-0.5 text-[13px]; }
