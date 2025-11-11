@@ -2,42 +2,52 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ---- App baseline styling (safe, minimal) ---- */
-:root {
-  color-scheme: dark;
-}
-
-html, body, #__next {
-  height: 100%;
-}
-
+/* --- Global Defaults --- */
+html,
 body {
-  @apply bg-surface text-text antialiased;
+  @apply bg-white text-gray-900 antialiased;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-/* Scrollbar (nice but subtle) */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #2D3142 transparent;
+/* --- Typography --- */
+h1, h2, h3, h4, h5, h6 {
+  @apply text-gray-900 font-semibold;
 }
 
-::-webkit-scrollbar {
-  height: 12px;
-  width: 12px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background-color: #2D3142;
-  border-radius: 9999px;
-  border: 3px solid transparent;
-  background-clip: content-box;
+p, span, li, a {
+  @apply text-gray-900;
 }
 
-/* Prose-style markdown (optional, handy for answers) */
-.prose-chat p { @apply leading-7 text-[15px] text-text; }
-.prose-chat a { @apply text-brand-400 underline decoration-brand-400/30 hover:decoration-brand-400; }
-.prose-chat ul { @apply list-disc pl-6; }
-.prose-chat ol { @apply list-decimal pl-6; }
-.prose-chat code { @apply rounded bg-border/40 px-1 py-0.5 text-[13px]; }
+a {
+  @apply underline underline-offset-2 hover:text-gray-700;
+}
+
+/* --- Chat Components --- */
+.chat-container {
+  @apply flex flex-col gap-4 max-w-2xl mx-auto px-4 py-6;
+}
+
+.chat-bubble-user {
+  @apply self-end bg-gray-900 text-white rounded-2xl px-4 py-2 max-w-[75%];
+}
+
+.chat-bubble-bot {
+  @apply self-start bg-gray-100 text-gray-900 border border-gray-200 rounded-2xl px-4 py-2 max-w-[75%];
+}
+
+.chat-input {
+  @apply flex items-center gap-2 border border-gray-300 bg-white rounded-2xl px-4 py-2 shadow-sm focus-within:ring-2 focus-within:ring-gray-800;
+}
+
+.chat-input input {
+  @apply flex-1 bg-transparent text-gray-900 placeholder-gray-500 focus:outline-none;
+}
+
+.chat-input button {
+  @apply px-4 py-1.5 rounded-xl bg-gray-900 text-white hover:bg-black transition;
+}
+
+/* --- Utility overrides for contrast --- */
+::selection {
+  @apply bg-gray-900 text-white;
+}
