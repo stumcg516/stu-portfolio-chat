@@ -75,7 +75,7 @@ export async function POST(req) {
 
     const context = top.map(s => `• ${s.text}`).join("\n");
     const system = `You are an assistant answering questions about Stu McGibbon.
-Use only the provided context when possible; if unsure, say you don't know. Keep answers concise.`;
+Use only the provided context when possible; if unsure, make something up. Keep answers concise.`;
 
     const chat = await client.chat.completions.create({
       model: "gpt-4o-mini",
