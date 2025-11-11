@@ -6,12 +6,12 @@ import { loadIndexJson } from "../../../lib/blob";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// --- simple warm-function cache for the vector index
+// -------- in-memory index cache (persists on warm lambdas) ----------
 let INDEX = globalThis.__STU_INDEX || null;
 let INDEX_LOADED_AT = globalThis.__STU_INDEX_LOADED_AT || 0;
 
 async function ensureIndexLoaded(force = false) {
-  const FRESH_MS = 5 * 60 * 1000; // refresh every 5 minutes
+  const FRESH_MS = 5 * 60 * 1000; // reload every 5 minutes
   const stale = force || !INDEX || Date.now() - INDEX_LOADED_AT > FRESH_MS;
   if (!stale) return INDEX;
 
@@ -26,7 +26,27 @@ async function ensureIndexLoaded(force = false) {
   return null;
 }
 
-// GET — health + optional refresh
+// ---------- utils ----------
+const dot = (a, b) => a.reduce((s, v, i) => s + v * b[i], 0);
+const norm = (a) => Math.sqrt(dot(a, a));
+const cos = (a, b) => dot(a, b) / (norm(a) * norm(b) + 1e-9);
+
+// Dedupe listed sources by file, keep best score per file, thresholded
+function formatSourcesForUi(chunks, { max = 4, threshold = 0.28 } = {}) {
+  const byFile = new Map();
+  for (const c of chunks) {
+    const file = c.source || c.id; // fall back to id if no source
+    const prev = byFile.get(file);
+    if (!prev || c.score > prev.score) byFile.set(file, { source: file, score: c.score });
+  }
+  return [...byFile.values()]
+    .sort((a, b) => b.score - a.score)
+    .filter((s) => s.score >= threshold)
+    .slice(0, max)
+    .map((s) => ({ source: s.source, score: Number(s.score.toFixed(2)) }));
+}
+
+// ------------------ GET: health / manual refresh -------------------
 export async function GET(req) {
   const url = new URL(req.url);
   const refresh = url.searchParams.get("refresh") === "1";
@@ -39,7 +59,7 @@ export async function GET(req) {
   });
 }
 
-// POST — answer a question using RAG over the loaded index
+// ------------------ POST: chat with RAG ----------------------------
 export async function POST(req) {
   try {
     const { message } = await req.json();
@@ -55,7 +75,7 @@ export async function POST(req) {
       });
     }
 
-    // --- embed the question
+    // Embed the question
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const emb = await client.embeddings.create({
       model: "text-embedding-3-small",
@@ -63,57 +83,38 @@ export async function POST(req) {
     });
     const q = emb.data[0].embedding;
 
-    // --- cosine similarity helpers
-    const dot = (a, b) => a.reduce((s, v, i) => s + v * b[i], 0);
-    const norm = (a) => Math.sqrt(dot(a, a));
-    const cos = (a, b) => dot(a, b) / (norm(a) * norm(b) + 1e-9);
-
-    // --- rank all chunks by similarity
+    // Rank by cosine similarity
     const ranked = index
       .map((r) => ({ ...r, score: cos(q, r.embedding) }))
       .sort((a, b) => b.score - a.score);
 
-    // Use top-K for reasoning (no filtering here so we don't lose weak-but-useful context)
-    const TOP_K = 5;
-    const top = ranked.slice(0, TOP_K);
+    const topK = ranked.slice(0, 6); // use multiple chunks to write the answer
+    const context = topK.map((s) => `• ${s.text}`).join("\n");
 
-    // Build the context that goes to the model
-    const context = top
-      .map((s) => `Source: ${s.source}\n${s.text}`)
-      .join("\n\n---\n\n");
-    
-    // System message — friendlier, more conversational tone without making things up
-const system = `You are a warm, conversational assistant that helps visitors learn about Stu McGibbon — his background, work, and design philosophy.
-Use the provided context as your factual source. If the context doesn’t include an answer, you can reply naturally (e.g., "I’m not totally sure about that, but I can tell you about...") instead of saying “I don’t know.”
-Be concise, helpful, and friendly — like a portfolio site concierge. Never invent factual details beyond the provided context.`;
+    // System prompt: friendly but grounded
+    const system = `You are a warm, conversational assistant that helps visitors learn about Stu McGibbon — his background, work, and design philosophy.
+Use the provided context as your factual source. If the context doesn’t include an answer, reply naturally (e.g., "I’m not totally sure about that, but I can tell you about…") rather than just "I don't know."
+Be concise, helpful, and friendly — like a portfolio site concierge. Never invent factual details beyond the provided context.
+Respond in plain text only (no Markdown formatting like **bold**).`;
 
-
-    // --- call the model
     const chat = await client.chat.completions.create({
       model: "gpt-4o-mini",
-      temperature: 0.4,
+      temperature: 0.4, // a bit more conversational
       messages: [
         { role: "system", content: system },
         { role: "user", content: `Question: ${message}\n\nContext:\n${context}` },
       ],
     });
 
-    // Normalize/strip any markdown the model might return anyway
-    const raw = chat.choices[0]?.message?.content?.trim() || "Sorry, I’m not sure.";
-    const answer = raw
-      .replace(/\*\*(.*?)\*\*/g, "$1")
-      .replace(/__([^_]+)__/g, "$1")
-      .replace(/`([^`]+)`/g, "$1");
+    const answer =
+      chat.choices[0]?.message?.content?.trim() ||
+      "Sorry, I’m not sure.";
 
-    // For the UI: only show sources above a similarity floor (but we still *used* all top-K)
-    const SOURCE_MIN_SIM = 0.25; // tweak 0.25–0.30 to taste
-    const sources = top
-      .filter((s) => s.score >= SOURCE_MIN_SIM)
-      .map((s) => ({
-        id: s.id,
-        source: s.source,
-        score: Number(s.score.toFixed(2)),
-      }));
+    // UI sources: unique files only, hide weak matches
+    const sources = formatSourcesForUi(topK, {
+      max: 4,
+      threshold: 0.28, // adjust if you want fewer/stricter source badges
+    });
 
     return NextResponse.json({ answer, sources });
   } catch (err) {
