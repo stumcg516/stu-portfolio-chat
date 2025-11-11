@@ -202,9 +202,15 @@ export default function ChatPage() {
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                (e.currentTarget.form as HTMLFormElement)?.requestSubmit();
+                const form = e.currentTarget.form;
+              if (form?.requestSubmit) {
+                form.requestSubmit();
+            } else {
+                form?.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+                }
               }
             }}
+      
           />
           <div className="actions">
             {loading ? (
