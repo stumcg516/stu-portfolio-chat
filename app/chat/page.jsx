@@ -2,64 +2,96 @@
 
 import { useEffect, useRef, useState } from "react";
 
-// Simple message shape
-function Bubble({ role, content, onCopy }) {
+function cx(...classes) {
+  return classes.filter(Boolean).join(" ");
+}
+
+function BotAvatar() {
+  return (
+    <div className="h-8 w-8 rounded-full bg-sky-100 text-sky-700 grid place-items-center text-sm">
+      🤖
+    </div>
+  );
+}
+
+function UserAvatar() {
+  return (
+    <div className="h-8 w-8 rounded-full bg-zinc-100 text-zinc-700 grid place-items-center text-sm">
+      🧑
+    </div>
+  );
+}
+
+function CopyBtn({ text }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      className="text-zinc-400 hover:text-zinc-600 transition"
+      title="Copy"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text || "");
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1200);
+        } catch {}
+      }}
+    >
+      {copied ? "✔︎" : "⎘"}
+    </button>
+  );
+}
+
+function Sources({ items }) {
+  if (!items || !items.length) return null;
+  return (
+    <div className="mt-3 rounded-md bg-zinc-50 px-3 py-2 text-xs text-zinc-600 leading-relaxed">
+      <div className="font-medium text-zinc-700 mb-1">Sources</div>
+      <ul className="flex flex-wrap gap-x-3 gap-y-1">
+        {items.map((s, i) => (
+          <li key={i} className="inline-flex items-center gap-1">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-zinc-300" />
+            <span className="tabular-nums">
+              {s.source ?? s.id ?? "source"}{" "}
+              {typeof s.score === "number" ? (
+                <span className="text-zinc-400">({s.score.toFixed(2)})</span>
+              ) : null}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function Message({ role, content, sources }) {
   const isUser = role === "user";
   return (
-    <div className={`msg ${isUser ? "user" : "bot"}`}>
-      <div className="avatar">{isUser ? "🧑‍💻" : "🤖"}</div>
-      <div className="bubble">
-        <div className="content">{content}</div>
-        {!isUser && (
-          <button className="copy" onClick={onCopy} title="Copy answer">
-            ⧉
-          </button>
+    <div
+      className={cx(
+        "flex items-start gap-3",
+        isUser ? "justify-end" : "justify-start"
+      )}
+    >
+      {!isUser && <BotAvatar />}
+      <div
+        className={cx(
+          "max-w-[80%] rounded-2xl px-4 py-3 shadow-sm",
+          isUser
+            ? "bg-black text-white rounded-tr-sm"
+            : "bg-white text-zinc-900 ring-1 ring-zinc-100 rounded-tl-sm"
         )}
+      >
+        <div className="whitespace-pre-wrap leading-relaxed">{content}</div>
+        {!isUser && <Sources items={sources} />}
       </div>
-      <style jsx>{`
-        .msg {
-          display: grid;
-          grid-template-columns: 36px 1fr;
-          gap: 10px;
-          align-items: flex-start;
-          margin-bottom: 14px;
-        }
-        .avatar {
-          width: 36px;
-          height: 36px;
-          border-radius: 12px;
-          display: grid;
-          place-items: center;
-          background: var(--card);
-          box-shadow: var(--shadow);
-          font-size: 18px;
-        }
-        .bubble {
-          position: relative;
-          background: ${isUser ? "var(--user)" : "var(--card)"};
-          color: ${isUser ? "var(--userText)" : "inherit"};
-          border: 1px solid var(--hairline);
-          padding: 12px 14px;
-          border-radius: 14px;
-          box-shadow: var(--shadow);
-        }
-        .content {
-          white-space: pre-wrap;
-          word-break: break-word;
-        }
-        .copy {
-          position: absolute;
-          right: 8px;
-          bottom: 8px;
-          border: 0;
-          background: transparent;
-          cursor: pointer;
-          opacity: 0.6;
-        }
-        .copy:hover {
-          opacity: 1;
-        }
-      `}</style>
+      {isUser && <UserAvatar />}
+      {/* copy button for assistant bubbles */}
+      {!isUser && (
+        <div className="pl-2 pt-1">
+          <CopyBtn text={content} />
+        </div>
+      )}
     </div>
   );
 }
@@ -75,317 +107,203 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const listRef = useRef(null);
-  const abortRef = useRef(null);
 
-  // Auto scroll to bottom
+  // Auto-scroll to latest
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
+    const el = listRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [messages, loading]);
 
-  async function sendMessage(text) {
-    const user = { role: "user", content: text.trim() };
-    const assistant = { role: "assistant", content: "" };
-    setMessages((m) => [...m, user, assistant]);
+  async function sendMessage(question) {
+    const q = question?.trim?.() ?? input.trim();
+    if (!q) return;
+
+    // Add user message
+    setMessages((m) => [...m, { role: "user", content: q }]);
+    setInput("");
+
+    // Add assistant placeholder we’ll stream/replace into
+    const assistantIndex = messages.length + 1;
+    setMessages((m) => [...m, { role: "assistant", content: "" }]);
     setLoading(true);
 
     try {
-      const controller = new AbortController();
-      abortRef.current = controller;
-
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
-        signal: controller.signal,
+        body: JSON.stringify({ message: q }),
       });
 
-      if (!res.body) throw new Error("No response body");
+      const contentType = res.headers.get("content-type") || "";
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let done = false;
+      // If JSON, parse and set nicely
+      if (contentType.includes("application/json")) {
+        const data = await res.json();
+        const text =
+          typeof data?.answer === "string"
+            ? data.answer
+            : typeof data === "string"
+            ? data
+            : JSON.stringify(data, null, 2);
+        setMessages((m) => {
+          const copy = m.slice();
+          copy[assistantIndex] = {
+            role: "assistant",
+            content: text,
+            sources: data?.sources,
+          };
+          return copy;
+        });
+      } else {
+        // Stream plain text
+        const reader = res.body?.getReader();
+        const decoder = new TextDecoder();
+        let acc = "";
 
-      while (!done) {
-        const { value, done: d } = await reader.read();
-        done = d;
-        if (value) {
-          const chunk = decoder.decode(value);
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            acc += decoder.decode(value, { stream: true });
+            setMessages((m) => {
+              const copy = m.slice();
+              copy[assistantIndex] = { role: "assistant", content: acc };
+              return copy;
+            });
+          }
+        } else {
+          const text = await res.text();
+          acc = text;
           setMessages((m) => {
-            const copy = [...m];
-            copy[copy.length - 1] = {
-              ...copy[copy.length - 1],
-              content: copy[copy.length - 1].content + chunk,
-            };
+            const copy = m.slice();
+            copy[assistantIndex] = { role: "assistant", content: acc };
             return copy;
           });
+        }
+
+        // Best effort: if server ended up sending JSON string, pretty it
+        try {
+          const maybe = JSON.parse(acc);
+          if (maybe && typeof maybe === "object" && maybe.answer) {
+            setMessages((m) => {
+              const copy = m.slice();
+              copy[assistantIndex] = {
+                role: "assistant",
+                content: maybe.answer,
+                sources: maybe.sources,
+              };
+              return copy;
+            });
+          }
+        } catch {
+          // ignore — plain text
         }
       }
     } catch (err) {
       setMessages((m) => [
         ...m,
-        { role: "assistant", content: "Sorry — I hit an error. Try again in a moment." },
+        {
+          role: "assistant",
+          content:
+            "Sorry—something went wrong while contacting the chat endpoint.",
+        },
       ]);
     } finally {
       setLoading(false);
-      abortRef.current = null;
     }
   }
 
-  function onSubmit(e) {
-    e.preventDefault();
-    if (!input.trim() || loading) return;
-    const text = input;
-    setInput("");
-    sendMessage(text);
-  }
-
-  function onStop() {
-    abortRef.current?.abort();
-    abortRef.current = null;
-    setLoading(false);
-  }
-
-  function quickAsk(q) {
-    setInput(q);
-    // tiny delay so input renders before submit
-    setTimeout(() => {
-      const form = document.getElementById("chat-form");
-      form?.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
-    }, 0);
-  }
-
   return (
-    <main className="wrap">
-      <header className="header">
-        <div className="title">
-          <span className="logo">💬</span> Stu’s Portfolio Chat
+    <div className="min-h-screen bg-zinc-50">
+      <header className="border-b border-zinc-200 bg-white/70 backdrop-blur">
+        <div className="mx-auto max-w-3xl px-4 py-4">
+          <h1 className="text-2xl font-semibold tracking-tight">
+            <span className="mr-2">💬</span>Stu’s Portfolio Chat
+          </h1>
+          <div className="mt-2 flex flex-wrap gap-4 text-sm text-zinc-600">
+            <span className="shrink-0">Try:</span>
+            <button
+              className="underline-offset-2 hover:underline"
+              onClick={() => sendMessage("Who is Stu McGibbon?")}
+            >
+              Who is Stu McGibbon?
+            </button>
+            <button
+              className="underline-offset-2 hover:underline"
+              onClick={() => sendMessage("What are Stu’s strengths?")}
+            >
+              Strengths
+            </button>
+            <button
+              className="underline-offset-2 hover:underline"
+              onClick={() => sendMessage("Give me a project overview.")}
+            >
+              Project overview
+            </button>
+          </div>
         </div>
-        <a className="home" href="/">Home</a>
       </header>
 
-      <section className="panel">
-        <div className="hints">
-          <span className="hint-label">Try:</span>
-          <button onClick={() => quickAsk("Who is Stu McGibbon?")}>Who is Stu McGibbon?</button>
-          <button onClick={() => quickAsk("What are Stu’s strengths as a designer?")}>
-            Strengths
-          </button>
-          <button onClick={() => quickAsk("Tell me about a project Stu led end-to-end.")}>
-            Project overview
-          </button>
-        </div>
-
-        <div className="messages" ref={listRef}>
+      <main className="mx-auto max-w-3xl px-4">
+        <div
+          ref={listRef}
+          className="mt-6 mb-32 flex flex-col gap-5 overflow-y-auto"
+          style={{ minHeight: "40vh" }}
+        >
           {messages.map((m, i) => (
-            <Bubble
+            <Message
               key={i}
               role={m.role}
               content={m.content}
-              onCopy={() => navigator.clipboard.writeText(m.content)}
+              sources={m.sources}
             />
           ))}
           {loading && (
-            <div className="typing">
-              <div className="dot" />
-              <div className="dot" />
-              <div className="dot" />
-            </div>
+            <div className="text-zinc-400 text-sm pl-11">typing…</div>
           )}
         </div>
 
-        <form id="chat-form" className="composer" onSubmit={onSubmit}>
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask a question… (Enter to send, Shift+Enter for newline)"
-            disabled={loading}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
+        {/* input bar */}
+        <div className="fixed inset-x-0 bottom-0 border-t border-zinc-200 bg-white/80 backdrop-blur">
+          <div className="mx-auto max-w-3xl px-4 py-3">
+            <form
+              className="relative"
+              onSubmit={(e) => {
                 e.preventDefault();
-                const form = e.currentTarget.form;
-              if (form?.requestSubmit) {
-                form.requestSubmit();
-            } else {
-                form?.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
-                }
-              }
-            }}
-      
-          />
-          <div className="actions">
-            {loading ? (
-              <button type="button" className="secondary" onClick={onStop}>
-                Stop
+                sendMessage();
+              }}
+            >
+              <input
+                className="w-full rounded-2xl border border-zinc-300 bg-white px-4 py-3 pr-24 shadow-sm outline-none focus:border-zinc-400 focus:ring-0 placeholder:text-zinc-400"
+                placeholder="Ask a question…"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    const form = e.currentTarget.form;
+                    if (form?.requestSubmit) {
+                      form.requestSubmit();
+                    } else {
+                      form?.dispatchEvent(
+                        new Event("submit", { cancelable: true, bubbles: true })
+                      );
+                    }
+                  }
+                }}
+              />
+              <button
+                type="submit"
+                className="absolute right-1.5 top-1.5 rounded-xl bg-black px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-zinc-800 disabled:opacity-50"
+                disabled={!input.trim() || loading}
+              >
+                Send
               </button>
-            ) : (
-              <button type="submit">Send</button>
-            )}
+            </form>
+            <div className="h-2" />
           </div>
-        </form>
-      </section>
-
-      <style jsx>{`
-        :root {
-          --bg: #0b0c0f;
-          --fg: #e9eef6;
-          --muted: #98a2b3;
-          --card: rgba(255, 255, 255, 0.06);
-          --hairline: rgba(255, 255, 255, 0.12);
-          --user: #2563eb;
-          --userText: #ffffff;
-          --shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-          --focus: 0 0 0 3px rgba(37, 99, 235, 0.35);
-        }
-        @media (prefers-color-scheme: light) {
-          :root {
-            --bg: #f6f7fb;
-            --fg: #0b1220;
-            --muted: #5b6473;
-            --card: #ffffff;
-            --hairline: rgba(19, 29, 52, 0.08);
-            --user: #2563eb;
-            --userText: #ffffff;
-            --shadow: 0 8px 24px rgba(12, 22, 44, 0.08);
-          }
-        }
-        * { box-sizing: border-box; }
-        html, body, .wrap { height: 100%; }
-        body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Arial; }
-
-        .wrap {
-          max-width: 900px;
-          margin: 0 auto;
-          padding: 28px 16px 22px;
-          display: grid;
-          grid-template-rows: auto 1fr;
-          gap: 18px;
-        }
-
-        .header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-        }
-        .title {
-          font-weight: 700;
-          font-size: 22px;
-          letter-spacing: 0.3px;
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-        .logo {
-          display: grid;
-          place-items: center;
-          width: 34px;
-          height: 34px;
-          border-radius: 10px;
-          background: var(--card);
-          box-shadow: var(--shadow);
-        }
-        .home {
-          color: var(--muted);
-          text-decoration: none;
-          border: 1px solid var(--hairline);
-          padding: 8px 10px;
-          border-radius: 10px;
-          background: var(--card);
-        }
-        .home:hover { color: var(--fg); }
-
-        .panel {
-          display: grid;
-          grid-template-rows: auto 1fr auto;
-          gap: 12px;
-          background: var(--card);
-          border: 1px solid var(--hairline);
-          border-radius: 16px;
-          box-shadow: var(--shadow);
-          overflow: hidden;
-        }
-
-        .hints {
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
-          padding: 12px 12px 0;
-        }
-        .hint-label {
-          color: var(--muted);
-          margin-right: 4px;
-          align-self: center;
-        }
-        .hints button {
-          border: 1px solid var(--hairline);
-          background: transparent;
-          color: var(--fg);
-          border-radius: 999px;
-          padding: 6px 10px;
-          cursor: pointer;
-        }
-        .hints button:hover {
-          background: rgba(255,255,255,0.06);
-        }
-
-        .messages {
-          padding: 14px 14px 6px;
-          overflow: auto;
-          min-height: 280px;
-          max-height: calc(100vh - 280px);
-        }
-
-        .composer {
-          display: grid;
-          grid-template-columns: 1fr auto;
-          gap: 8px;
-          padding: 12px;
-          border-top: 1px solid var(--hairline);
-          background: linear-gradient(180deg, transparent, rgba(0,0,0,0.03));
-        }
-        .composer input {
-          width: 100%;
-          resize: none;
-          padding: 12px 14px;
-          border-radius: 12px;
-          border: 1px solid var(--hairline);
-          background: #ffffff0d;
-          color: var(--fg);
-          outline: none;
-        }
-        .composer input:focus { box-shadow: var(--focus); }
-        .actions {
-          display: flex; gap: 8px;
-        }
-        button {
-          border: 0;
-          background: var(--user);
-          color: #fff;
-          padding: 12px 14px;
-          border-radius: 12px;
-          cursor: pointer;
-          box-shadow: var(--shadow);
-        }
-        button.secondary {
-          background: #6b7280;
-        }
-        button:disabled { opacity: 0.6; cursor: not-allowed; }
-
-        .typing {
-          display: flex;
-          gap: 6px;
-          padding: 10px 14px 18px;
-        }
-        .dot {
-          width: 8px; height: 8px; border-radius: 999px; background: var(--muted);
-          animation: bounce 1s infinite ease-in-out;
-        }
-        .dot:nth-child(2) { animation-delay: 0.15s }
-        .dot:nth-child(3) { animation-delay: 0.3s }
-        @keyframes bounce {
-          0%, 80%, 100% { transform: translateY(0); opacity: 0.5; }
-          40% { transform: translateY(-4px); opacity: 1; }
-        }
-      `}</style>
-    </main>
+        </div>
+      </main>
+    </div>
   );
 }
