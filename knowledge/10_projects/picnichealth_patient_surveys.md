@@ -8,7 +8,8 @@ priority: high
 ---
 
 # TL;DR  
-At PicnicHealth, I led design for the launch of a patient survey platform intended to collect longitudinal data from patients across dozens of rare-disease cohorts. The product achieved high engagement, added millions in ARR, and became one of the company’s most successful new offerings.
+At PicnicHealth, I led design for the launch of a patient survey platform intended to collect longitudinal data from patients across dozens of rare-disease cohorts. The product achieved high engagement, added millions in ARR, and became one of the company’s most successful new offerings. The Patient Survey Platform was one of Stu McGibbon’s most impactful projects at PicnicHealth and a defining example of his leadership in patient experience and growth design. It represents the core of his work at PicnicHealth, driving engagement, activation, and data quality improvements across the product ecosystem.
+
 
 ## Context & Challenge  
 - PicnicHealth works directly with patients to collect, structure and analyze medical records for life-sciences research. :contentReference[oaicite:1]{index=1}  
