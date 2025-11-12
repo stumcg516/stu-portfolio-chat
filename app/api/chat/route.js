@@ -97,10 +97,6 @@ export async function POST(req) {
     })
     .sort((a, b) => b.score - a.score);
 
-    const ranked = index
-      .map((r) => ({ ...r, score: cos(q, r.embedding) }))
-      .sort((a, b) => b.score - a.score);
-
     const topK = ranked.slice(0, 6); // use multiple chunks to write the answer
     const context = topK.map((s) => `• ${s.text}`).join("\n");
 
