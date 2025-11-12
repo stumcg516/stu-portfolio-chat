@@ -86,12 +86,27 @@ function Message({ role, content, sources }) {
         {!isUser && <Sources items={sources} />}
       </div>
       {isUser && <UserAvatar />}
-      {/* copy button for assistant bubbles */}
       {!isUser && (
         <div className="pl-2 pt-1">
           <CopyBtn text={content} />
         </div>
       )}
+    </div>
+  );
+}
+
+/** Animated typing bubble (uses .typing-dot classes from globals.css) */
+function TypingBubble() {
+  return (
+    <div className="flex items-start gap-3">
+      <BotAvatar />
+      <div className="max-w-[80%] rounded-2xl bg-white text-zinc-900 ring-1 ring-zinc-100 rounded-tl-sm px-4 py-3 shadow-sm">
+        <span className="inline-flex items-center h-4">
+          <span className="typing-dot" />
+          <span className="typing-dot" />
+          <span className="typing-dot" />
+        </span>
+      </div>
     </div>
   );
 }
@@ -181,7 +196,7 @@ export default function ChatPage() {
           });
         }
 
-        // Best effort: if server ended up sending JSON string, pretty it
+        // If server actually sent JSON as text, pretty it
         try {
           const maybe = JSON.parse(acc);
           if (maybe && typeof maybe === "object" && maybe.answer) {
@@ -214,7 +229,8 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50">
+    <div className="min-h-screen bg-zinc-50 flex flex-col">
+      {/* Header */}
       <header className="border-b border-zinc-200 bg-white/70 backdrop-blur">
         <div className="mx-auto max-w-3xl px-4 py-4">
           <h1 className="text-2xl font-semibold tracking-tight">
@@ -244,10 +260,11 @@ export default function ChatPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl px-4">
+      {/* Messages list */}
+      <main className="mx-auto max-w-3xl w-full flex-1 px-4">
         <div
           ref={listRef}
-          className="mt-6 mb-32 flex flex-col gap-5 overflow-y-auto"
+          className="mt-6 mb-32 flex flex-col gap-5 overflow-y-auto pb-4"
           style={{ minHeight: "40vh" }}
         >
           {messages.map((m, i) => (
@@ -258,13 +275,11 @@ export default function ChatPage() {
               sources={m.sources}
             />
           ))}
-          {loading && (
-            <div className="text-zinc-400 text-sm pl-11">typing…</div>
-          )}
+          {loading && <TypingBubble />}
         </div>
 
         {/* input bar */}
-        <div className="fixed inset-x-0 bottom-0 border-t border-zinc-200 bg-white/80 backdrop-blur">
+        <div className="fixed inset-x-0 bottom-0 border-t border-zinc-200 bg-zinc-50/90 backdrop-blur">
           <div className="mx-auto max-w-3xl px-4 py-3">
             <form
               className="relative"
@@ -282,13 +297,14 @@ export default function ChatPage() {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     const form = e.currentTarget.form;
-                    if (form?.requestSubmit) {
-                      form.requestSubmit();
-                    } else {
+                    if (form?.requestSubmit) form.requestSubmit();
+                    else
                       form?.dispatchEvent(
-                        new Event("submit", { cancelable: true, bubbles: true })
+                        new Event("submit", {
+                          cancelable: true,
+                          bubbles: true,
+                        })
                       );
-                    }
                   }
                 }}
               />
