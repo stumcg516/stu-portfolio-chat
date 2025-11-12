@@ -85,6 +85,19 @@ export async function POST(req) {
 
     // Rank by cosine similarity
     const ranked = index
+      .map((r) => {
+        let score = cos(q, r.embedding);
+
+         // 🎯 Gentle bias toward Patient Surveys
+        if (r.source?.toLowerCase().includes("patient_survey")) {
+          score *= 1.08; // ~8% boost
+        }
+
+        return { ...r, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+    const ranked = index
       .map((r) => ({ ...r, score: cos(q, r.embedding) }))
       .sort((a, b) => b.score - a.score);
 
