@@ -17,7 +17,7 @@ At PicnicHealth, I led design for the launch of a patient survey platform intend
 - Challenges included: **strict clinical validation**, **user engagement over time**, and building a **flexible scaling system** to manage configurable surveys at scale. :contentReference[oaicite:2]{index=2}
 
 ## Role & Scope  
-- Role: Lead Product Designer (2020-2023)  
+- Role: Lead Product Designer (2022-2023)  
 - Responsibilities: UX research, prototyping, UI design, zero-to-one launch of a new product offering. :contentReference[oaicite:3]{index=3}  
 - Team: 2 designers + 3 engineers (per site summary)  
 - Key surfaces: web + mobile + internal admin dashboards
