@@ -95,7 +95,7 @@ function Message({ role, content, sources, animate }) {
     setDisplayText("");
     setDone(false);
 
-    // ChatGPT-ish pace: ~25ms / character (auto-faster for very long texts)
+    // ChatGPT-ish pace, faster for long answers
     const baseDelay = 18;
     const len = full.length || 1;
     const delay = len > 800 ? 8 : len > 400 ? 12 : baseDelay;
@@ -168,6 +168,8 @@ export default function ChatPage() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // scrollable message container
   const listRef = useRef(null);
 
   // animate the initial welcome message on mount
@@ -182,10 +184,23 @@ export default function ChatPage() {
     ]);
   }, []);
 
-  // Auto-scroll to latest
+  // Auto-scroll when messages / loading change
   useEffect(() => {
     const el = listRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+
+    // Scroll so the bottom is visible but not glued to the very bottom,
+    // similar-ish to ChatGPT’s layout.
+    const offset = 64; // px of slack above the input bar
+    const target =
+      el.scrollHeight - el.clientHeight - offset > 0
+        ? el.scrollHeight - el.clientHeight - offset
+        : 0;
+
+    el.scrollTo({
+      top: target,
+      behavior: "smooth",
+    });
   }, [messages, loading]);
 
   async function sendMessage(explicitQuestion) {
@@ -247,7 +262,8 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50">
+    <div className="flex min-h-screen flex-col bg-zinc-50">
+      {/* header */}
       <header className="border-b border-zinc-200 bg-white/70 backdrop-blur">
         <div className="mx-auto max-w-3xl px-4 py-4">
           <h1 className="text-2xl font-semibold tracking-tight">
@@ -277,23 +293,25 @@ export default function ChatPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl px-4">
-        <div
-          ref={listRef}
-          className="mt-6 mb-32 flex flex-col gap-5 overflow-y-auto"
-          style={{ minHeight: "40vh" }}
-        >
-          {messages.map((m, i) => (
-            <Message
-              key={i}
-              role={m.role}
-              content={m.content}
-              sources={m.sources}
-              // only animate the most recent assistant message
-              animate={!!m.animate && i === messages.length - 1}
-            />
-          ))}
-          {loading && <TypingBubble />}
+      {/* main chat area */}
+      <main className="flex-1">
+        <div className="mx-auto flex h-full max-w-3xl flex-col px-4">
+          <div
+            ref={listRef}
+            className="flex-1 pt-6 pb-28 flex flex-col gap-5 overflow-y-auto"
+          >
+            {messages.map((m, i) => (
+              <Message
+                key={i}
+                role={m.role}
+                content={m.content}
+                sources={m.sources}
+                // only animate the most recent assistant message
+                animate={!!m.animate && i === messages.length - 1}
+              />
+            ))}
+            {loading && <TypingBubble />}
+          </div>
         </div>
 
         {/* input bar */}
