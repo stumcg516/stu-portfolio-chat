@@ -95,7 +95,7 @@ function Message({ role, content, sources, animate }) {
     setDisplayText("");
     setDone(false);
 
-    // ChatGPT-ish pace, faster for long answers
+    // ChatGPT-ish pace: ~18ms / char, a bit faster for long replies
     const baseDelay = 18;
     const len = full.length || 1;
     const delay = len > 800 ? 8 : len > 400 ? 12 : baseDelay;
@@ -169,8 +169,8 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // scrollable message container
   const listRef = useRef(null);
+  const bottomRef = useRef(null);
 
   // animate the initial welcome message on mount
   useEffect(() => {
@@ -184,24 +184,18 @@ export default function ChatPage() {
     ]);
   }, []);
 
-  // Auto-scroll when messages / loading change
+  // Auto-scroll whenever the message count changes
   useEffect(() => {
-    const el = listRef.current;
+    const el = bottomRef.current;
     if (!el) return;
 
-    // Scroll so the bottom is visible but not glued to the very bottom,
-    // similar-ish to ChatGPT’s layout.
-    const offset = 64; // px of slack above the input bar
-    const target =
-      el.scrollHeight - el.clientHeight - offset > 0
-        ? el.scrollHeight - el.clientHeight - offset
-        : 0;
-
-    el.scrollTo({
-      top: target,
+    // Scroll so the latest part of the thread comes into view.
+    // `block: "start"` puts it toward the top of the scroll area.
+    el.scrollIntoView({
       behavior: "smooth",
+      block: "start",
     });
-  }, [messages, loading]);
+  }, [messages.length]);
 
   async function sendMessage(explicitQuestion) {
     const q = (explicitQuestion ?? input).trim();
@@ -311,6 +305,8 @@ export default function ChatPage() {
               />
             ))}
             {loading && <TypingBubble />}
+            {/* sentinel for scrollIntoView */}
+            <div ref={bottomRef} />
           </div>
         </div>
 
