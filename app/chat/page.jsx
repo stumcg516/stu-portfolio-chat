@@ -34,9 +34,7 @@ function CopyBtn({ text }) {
           await navigator.clipboard.writeText(text || "");
           setCopied(true);
           setTimeout(() => setCopied(false), 1200);
-        } catch {
-          // ignore
-        }
+        } catch {}
       }}
     >
       {copied ? "✔︎" : "⎘"}
@@ -66,53 +64,8 @@ function Sources({ items }) {
   );
 }
 
-/**
- * Message bubble with optional "typing" reveal animation
- */
-function Message({ role, content, sources, animate }) {
+function Message({ role, content, sources }) {
   const isUser = role === "user";
-
-  // show full text immediately for user messages
-  const [displayText, setDisplayText] = useState(
-    animate && !isUser ? "" : content
-  );
-  const [done, setDone] = useState(!animate || isUser);
-
-  useEffect(() => {
-    if (isUser) {
-      setDisplayText(content);
-      setDone(true);
-      return;
-    }
-
-    if (!animate) {
-      setDisplayText(content);
-      setDone(true);
-      return;
-    }
-
-    const full = content || "";
-    setDisplayText("");
-    setDone(false);
-
-    // ChatGPT-ish pace: ~25ms / character (auto-faster for very long texts)
-    const baseDelay = 18;
-    const len = full.length || 1;
-    const delay = len > 800 ? 8 : len > 400 ? 12 : baseDelay;
-
-    let i = 0;
-    const id = setInterval(() => {
-      i += 1;
-      setDisplayText(full.slice(0, i));
-      if (i >= full.length) {
-        clearInterval(id);
-        setDone(true);
-      }
-    }, delay);
-
-    return () => clearInterval(id);
-  }, [content, animate, isUser]);
-
   return (
     <div
       className={cx(
@@ -129,15 +82,11 @@ function Message({ role, content, sources, animate }) {
             : "bg-white text-zinc-900 ring-1 ring-zinc-100 rounded-tl-sm"
         )}
       >
-        <div className="whitespace-pre-wrap leading-relaxed">
-          {displayText}
-        </div>
-        {/* only show sources once the typing animation is done */}
-        {!isUser && done && <Sources items={sources} />}
+        <div className="whitespace-pre-wrap leading-relaxed">{content}</div>
+        {!isUser && <Sources items={sources} />}
       </div>
       {isUser && <UserAvatar />}
-      {/* copy button only when assistant text is fully revealed */}
-      {!isUser && done && (
+      {!isUser && (
         <div className="pl-2 pt-1">
           <CopyBtn text={content} />
         </div>
@@ -146,61 +95,44 @@ function Message({ role, content, sources, animate }) {
   );
 }
 
-function TypingBubble() {
-  return (
-    <div className="flex items-start gap-3">
-      <BotAvatar />
-      <div className="inline-flex items-center rounded-2xl rounded-tl-sm bg-white px-4 py-3 shadow-sm ring-1 ring-zinc-100">
-        <div className="flex items-center gap-1.5">
-          <span className="h-1.5 w-1.5 rounded-full bg-zinc-400 animate-pulse" />
-          <span className="h-1.5 w-1.5 rounded-full bg-zinc-300 animate-pulse [animation-delay:150ms]" />
-          <span className="h-1.5 w-1.5 rounded-full bg-zinc-200 animate-pulse [animation-delay:300ms]" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const WELCOME =
-  "Hi! I’m the concierge for Stu’s portfolio. Ask about projects, strengths, or anything on this site.";
-
 export default function ChatPage() {
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState([
+    {
+      role: "assistant",
+      content:
+        "Hi! I’m the concierge for Stu’s portfolio. Ask about projects, strengths, or anything on this site.",
+    },
+  ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const listRef = useRef(null);
 
-  // animate the initial welcome message on mount
-  useEffect(() => {
-    setMessages([
-      {
-        role: "assistant",
-        content: WELCOME,
-        sources: [],
-        animate: true,
-      },
-    ]);
-  }, []);
-
-  // Auto-scroll to latest
+  // --------- Auto-scroll like ChatGPT ----------
   useEffect(() => {
     const el = listRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+
+    // Scroll so the latest messages are near the bottom of the viewport
+    const target = Math.max(
+      0,
+      el.scrollHeight - el.clientHeight * 1.05 // small margin below
+    );
+
+    el.scrollTo({
+      top: target,
+      behavior: "smooth",
+    });
   }, [messages, loading]);
 
-  async function sendMessage(explicitQuestion) {
-    const q = (explicitQuestion ?? input).trim();
+  async function sendMessage(question) {
+    const q = question?.trim?.() ?? input.trim();
     if (!q) return;
 
-    // history to send to backend (role/content only)
-    const historyForServer = messages.map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
-
-    // add user message locally
-    setMessages((prev) => [...prev, { role: "user", content: q }]);
+    setMessages((m) => [...m, { role: "user", content: q }]);
     setInput("");
+
+    const assistantIndex = messages.length + 1;
+    setMessages((m) => [...m, { role: "assistant", content: "" }]);
     setLoading(true);
 
     try {
@@ -209,36 +141,79 @@ export default function ChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: q,
-          history: historyForServer,
+          history: messages, // send prior turns for context
         }),
       });
 
-      const data = await res.json();
-      const text =
-        typeof data?.answer === "string"
-          ? data.answer
-          : typeof data === "string"
-          ? data
-          : JSON.stringify(data, null, 2);
+      const contentType = res.headers.get("content-type") || "";
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: text,
-          sources: data?.sources || [],
-          animate: true, // trigger typing effect for this reply
-        },
-      ]);
+      if (contentType.includes("application/json")) {
+        const data = await res.json();
+        const text =
+          typeof data?.answer === "string"
+            ? data.answer
+            : typeof data === "string"
+            ? data
+            : JSON.stringify(data, null, 2);
+        setMessages((m) => {
+          const copy = m.slice();
+          copy[assistantIndex] = {
+            role: "assistant",
+            content: text,
+            sources: data?.sources,
+          };
+          return copy;
+        });
+      } else {
+        const reader = res.body?.getReader();
+        const decoder = new TextDecoder();
+        let acc = "";
+
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            acc += decoder.decode(value, { stream: true });
+            setMessages((m) => {
+              const copy = m.slice();
+              copy[assistantIndex] = { role: "assistant", content: acc };
+              return copy;
+            });
+          }
+        } else {
+          const text = await res.text();
+          acc = text;
+          setMessages((m) => {
+            const copy = m.slice();
+            copy[assistantIndex] = { role: "assistant", content: acc };
+            return copy;
+          });
+        }
+
+        try {
+          const maybe = JSON.parse(acc);
+          if (maybe && typeof maybe === "object" && maybe.answer) {
+            setMessages((m) => {
+              const copy = m.slice();
+              copy[assistantIndex] = {
+                role: "assistant",
+                content: maybe.answer,
+                sources: maybe.sources,
+              };
+              return copy;
+            });
+          }
+        } catch {
+          // ignore
+        }
+      }
     } catch (err) {
-      setMessages((prev) => [
-        ...prev,
+      setMessages((m) => [
+        ...m,
         {
           role: "assistant",
           content:
             "Sorry—something went wrong while contacting the chat endpoint.",
-          sources: [],
-          animate: true,
         },
       ]);
     } finally {
@@ -247,7 +222,8 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50">
+    <div className="min-h-screen bg-zinc-50 flex flex-col">
+      {/* HEADER */}
       <header className="border-b border-zinc-200 bg-white/70 backdrop-blur">
         <div className="mx-auto max-w-3xl px-4 py-4">
           <h1 className="text-2xl font-semibold tracking-tight">
@@ -277,26 +253,31 @@ export default function ChatPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl px-4">
-        <div
-          ref={listRef}
-          className="mt-6 mb-32 flex flex-col gap-5 overflow-y-auto"
-          style={{ minHeight: "40vh" }}
-        >
-          {messages.map((m, i) => (
-            <Message
-              key={i}
-              role={m.role}
-              content={m.content}
-              sources={m.sources}
-              // only animate the most recent assistant message
-              animate={!!m.animate && i === messages.length - 1}
-            />
-          ))}
-          {loading && <TypingBubble />}
+      {/* MAIN CHAT AREA */}
+      <main className="flex-1">
+        <div className="mx-auto flex h-full max-w-3xl flex-col px-4">
+          <div
+            ref={listRef}
+            className="mt-6 flex-1 flex flex-col gap-5 overflow-y-auto pb-32"
+          >
+            {messages.map((m, i) => (
+              <Message
+                key={i}
+                role={m.role}
+                content={m.content}
+                sources={m.sources}
+              />
+            ))}
+            {loading && (
+              <div className="flex items-center gap-2 text-zinc-400 text-sm pl-11">
+                <span className="h-2 w-2 rounded-full bg-zinc-300 animate-bounce" />
+                <span>Stu’s concierge is typing…</span>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* input bar */}
+        {/* INPUT BAR (fixed at bottom) */}
         <div className="fixed inset-x-0 bottom-0 border-t border-zinc-200 bg-white/80 backdrop-blur">
           <div className="mx-auto max-w-3xl px-4 py-3">
             <form
