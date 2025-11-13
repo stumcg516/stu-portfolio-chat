@@ -6,12 +6,12 @@ import { loadIndexJson } from "../../../lib/blob";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// -------- in-memory index cache (persists on warm lambdas) ----------
+// in-memory cache (persists across requests on a warm function)
 let INDEX = globalThis.__STU_INDEX || null;
 let INDEX_LOADED_AT = globalThis.__STU_INDEX_LOADED_AT || 0;
 
 async function ensureIndexLoaded(force = false) {
-  const FRESH_MS = 5 * 60 * 1000; // reload every 5 minutes
+  const FRESH_MS = 5 * 60 * 1000; // refresh every 5 min
   const stale = force || !INDEX || Date.now() - INDEX_LOADED_AT > FRESH_MS;
   if (!stale) return INDEX;
 
@@ -26,27 +26,7 @@ async function ensureIndexLoaded(force = false) {
   return null;
 }
 
-// ---------- utils ----------
-const dot = (a, b) => a.reduce((s, v, i) => s + v * b[i], 0);
-const norm = (a) => Math.sqrt(dot(a, a));
-const cos = (a, b) => dot(a, b) / (norm(a) * norm(b) + 1e-9);
-
-// Dedupe listed sources by file, keep best score per file, thresholded
-function formatSourcesForUi(chunks, { max = 4, threshold = 0.28 } = {}) {
-  const byFile = new Map();
-  for (const c of chunks) {
-    const file = c.source || c.id; // fall back to id if no source
-    const prev = byFile.get(file);
-    if (!prev || c.score > prev.score) byFile.set(file, { source: file, score: c.score });
-  }
-  return [...byFile.values()]
-    .sort((a, b) => b.score - a.score)
-    .filter((s) => s.score >= threshold)
-    .slice(0, max)
-    .map((s) => ({ source: s.source, score: Number(s.score.toFixed(2)) }));
-}
-
-// ------------------ GET: health / manual refresh -------------------
+// GET — health + optional refresh
 export async function GET(req) {
   const url = new URL(req.url);
   const refresh = url.searchParams.get("refresh") === "1";
@@ -59,11 +39,21 @@ export async function GET(req) {
   });
 }
 
-// ------------------ POST: chat with RAG ----------------------------
+// Helper: lightly augment the search text with recent user turns
+function buildSearchText(message, history = []) {
+  const recentUsers = history.filter(h => h.role === "user").slice(-2);
+  const prevUserText = recentUsers.map(u => u.content).join("\n");
+  return [prevUserText, message].filter(Boolean).join("\n").trim();
+}
+
+// POST — answer a question using RAG over the loaded index, with chat history
 export async function POST(req) {
   try {
-    const { message } = await req.json();
-    if (!message || typeof message !== "string") {
+    const body = await req.json();
+    const message = typeof body?.message === "string" ? body.message : "";
+    const history = Array.isArray(body?.history) ? body.history : [];
+
+    if (!message) {
       return NextResponse.json({ error: "No message" }, { status: 400 });
     }
 
@@ -75,55 +65,72 @@ export async function POST(req) {
       });
     }
 
-    // Embed the question
+    // ==== Embed query (newest user + recent user turns for better coref) ====
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const searchText = buildSearchText(message, history);
     const emb = await client.embeddings.create({
       model: "text-embedding-3-small",
-      input: message,
+      input: searchText,
     });
     const q = emb.data[0].embedding;
 
-    // Rank by cosine similarity
-    const ranked = index
-      .map((r) => {
-        let score = cos(q, r.embedding);
+    // cosine similarity
+    const dot = (a, b) => a.reduce((s, v, i) => s + v * b[i], 0);
+    const norm = (a) => Math.sqrt(dot(a, a));
+    const cos = (a, b) => dot(a, b) / (norm(a) * norm(b) + 1e-9);
 
-         // 🎯 Gentle bias toward Patient Surveys
-        if (r.source?.toLowerCase().includes("patient_survey")) {
-          score *= 1.08; // ~8% boost
-        }
+    const scored = index
+      .map((r) => ({ ...r, score: cos(q, r.embedding) }))
+      .sort((a, b) => b.score - a.score);
 
-        return { ...r, score };
-    })
-    .sort((a, b) => b.score - a.score);
+    const top = scored.slice(0, 5);
+    const context = top.map((s) => `• ${s.text}`).join("\n");
 
-    const topK = ranked.slice(0, 6); // use multiple chunks to write the answer
-    const context = topK.map((s) => `• ${s.text}`).join("\n");
+    // Build history for the model (trim to last 8 msgs to keep prompt small)
+    const historyForModel = history
+      .slice(-8)
+      .map(({ role, content }) => ({
+        role: role === "assistant" || role === "user" ? role : "user",
+        content: String(content || "").slice(0, 2000),
+      }));
 
-    // System prompt: friendly but grounded
-    const system = `You are a warm, conversational assistant that helps visitors learn about Stu McGibbon — his background, work, and design philosophy.
-Use the provided context as your factual source. If the context doesn’t include an answer, reply naturally (e.g., "I’m not totally sure about that, but I can tell you about…") rather than just "I don't know."
-Be concise, helpful, and friendly — like a portfolio site concierge. Never invent factual details beyond the provided context.
-Respond in plain text only (no Markdown formatting like **bold**).`;
+    const system = `You are a friendly, concise concierge for Stu McGibbon’s portfolio.
+- Use the provided context when possible.
+- If you’re not sure based on the notes, say so briefly and offer a helpful follow-up question.
+- Keep answers conversational (not stiff) and factual.
+- Never invent biographical details.`;
+
+    const messages = [
+      { role: "system", content: system },
+      ...historyForModel,
+      {
+        role: "user",
+        content: `Current question: ${message}
+
+Use these notes (they may be partial):
+${context}`,
+      },
+    ];
 
     const chat = await client.chat.completions.create({
       model: "gpt-4o-mini",
-      temperature: 0.4, // a bit more conversational
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: `Question: ${message}\n\nContext:\n${context}` },
-      ],
+      temperature: 0.3, // a hair more friendly without hallucinations
+      messages,
     });
 
     const answer =
       chat.choices[0]?.message?.content?.trim() ||
       "Sorry, I’m not sure.";
 
-    // UI sources: unique files only, hide weak matches
-    const sources = formatSourcesForUi(topK, {
-      max: 4,
-      threshold: 0.28, // adjust if you want fewer/stricter source badges
-    });
+    // show only relevant sources above a UI threshold; keep all in retrieval
+    const UI_MIN = 0.18;
+    const sources = top
+      .filter((s) => typeof s.score === "number" && s.score >= UI_MIN)
+      .map((s) => ({
+        id: s.id,
+        source: s.source,
+        score: Number(s.score.toFixed(3)),
+      }));
 
     return NextResponse.json({ answer, sources });
   } catch (err) {
