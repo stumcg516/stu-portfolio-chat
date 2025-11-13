@@ -95,7 +95,6 @@ function Message({ role, content, sources }) {
   );
 }
 
-/** Animated typing bubble (uses .typing-dot classes from globals.css) */
 function TypingBubble() {
   return (
     <div className="flex items-start gap-3">
@@ -123,21 +122,23 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false);
   const listRef = useRef(null);
 
-  // Auto-scroll to latest
   useEffect(() => {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, loading]);
 
+  function trimmedHistory(max = 8) {
+    // send the last few messages (role + content only)
+    return messages.slice(-max).map(({ role, content }) => ({ role, content }));
+  }
+
   async function sendMessage(question) {
     const q = question?.trim?.() ?? input.trim();
     if (!q) return;
 
-    // Add user message
     setMessages((m) => [...m, { role: "user", content: q }]);
     setInput("");
 
-    // Add assistant placeholder we’ll stream/replace into
     const assistantIndex = messages.length + 1;
     setMessages((m) => [...m, { role: "assistant", content: "" }]);
     setLoading(true);
@@ -146,12 +147,11 @@ export default function ChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: q }),
+        body: JSON.stringify({ message: q, history: trimmedHistory() }),
       });
 
       const contentType = res.headers.get("content-type") || "";
 
-      // If JSON, parse and set nicely
       if (contentType.includes("application/json")) {
         const data = await res.json();
         const text =
@@ -170,7 +170,6 @@ export default function ChatPage() {
           return copy;
         });
       } else {
-        // Stream plain text
         const reader = res.body?.getReader();
         const decoder = new TextDecoder();
         let acc = "";
@@ -188,33 +187,14 @@ export default function ChatPage() {
           }
         } else {
           const text = await res.text();
-          acc = text;
           setMessages((m) => {
             const copy = m.slice();
-            copy[assistantIndex] = { role: "assistant", content: acc };
+            copy[assistantIndex] = { role: "assistant", content: text };
             return copy;
           });
         }
-
-        // If server actually sent JSON as text, pretty it
-        try {
-          const maybe = JSON.parse(acc);
-          if (maybe && typeof maybe === "object" && maybe.answer) {
-            setMessages((m) => {
-              const copy = m.slice();
-              copy[assistantIndex] = {
-                role: "assistant",
-                content: maybe.answer,
-                sources: maybe.sources,
-              };
-              return copy;
-            });
-          }
-        } catch {
-          // ignore — plain text
-        }
       }
-    } catch (err) {
+    } catch {
       setMessages((m) => [
         ...m,
         {
@@ -230,7 +210,6 @@ export default function ChatPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50 flex flex-col">
-      {/* Header */}
       <header className="border-b border-zinc-200 bg-white/70 backdrop-blur">
         <div className="mx-auto max-w-3xl px-4 py-4">
           <h1 className="text-2xl font-semibold tracking-tight">
@@ -260,25 +239,27 @@ export default function ChatPage() {
         </div>
       </header>
 
-      {/* Messages list */}
       <main className="mx-auto max-w-3xl w-full flex-1 px-4">
         <div
           ref={listRef}
           className="mt-6 mb-32 flex flex-col gap-5 overflow-y-auto pb-4"
           style={{ minHeight: "40vh" }}
         >
-          {messages.map((m, i) => (
-            <Message
-              key={i}
-              role={m.role}
-              content={m.content}
-              sources={m.sources}
-            />
-          ))}
-          {loading && <TypingBubble />}
+          {messages.map((m, i) => {
+            if (m.role === "assistant" && !m.content) {
+              return <TypingBubble key={`typing-${i}`} />;
+            }
+            return (
+              <Message
+                key={i}
+                role={m.role}
+                content={m.content}
+                sources={m.sources}
+              />
+            );
+          })}
         </div>
 
-        {/* input bar */}
         <div className="fixed inset-x-0 bottom-0 border-t border-zinc-200 bg-zinc-50/90 backdrop-blur">
           <div className="mx-auto max-w-3xl px-4 py-3">
             <form
@@ -300,10 +281,7 @@ export default function ChatPage() {
                     if (form?.requestSubmit) form.requestSubmit();
                     else
                       form?.dispatchEvent(
-                        new Event("submit", {
-                          cancelable: true,
-                          bubbles: true,
-                        })
+                        new Event("submit", { cancelable: true, bubbles: true })
                       );
                   }
                 }}
