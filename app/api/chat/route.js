@@ -44,104 +44,94 @@ export async function GET(req) {
   });
 }
 
-// ---------- POST: main chat handler ----------
+// ---------- POST: main chat handler with history ----------
 export async function POST(req) {
   try {
-    const { message } = await req.json();
+    const { message, history = [] } = await req.json();
     if (!message || typeof message !== "string") {
       return NextResponse.json({ error: "No message" }, { status: 400 });
     }
 
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-    // Try to load Stu’s notes
+    // Load RAG index (Stu's notes)
     const index = await ensureIndexLoaded();
 
-    // If we *can’t* load notes, still be helpful, but be honest about Stu
-    if (!index || index.length === 0) {
-      const chat = await client.chat.completions.create({
-        model: "gpt-4o-mini",
-        temperature: 0.7,
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a warm, conversational assistant embedded on Stu McGibbon’s portfolio site. " +
-              "You currently do NOT have access to Stu’s notes or resume. " +
-              "If the user asks for specific facts about Stu’s background, roles, projects, or achievements, " +
-              "be transparent that you don’t have that information. " +
-              "For all other questions (small talk, general knowledge, etc.) respond naturally and helpfully.",
-          },
-          { role: "user", content: message },
-        ],
-      });
+    // ---- Build RAG context (if index is available) ----
+    let context = "";
+    let sources = [];
 
-      const answer =
-        chat.choices[0]?.message?.content?.trim() ||
-        "I’m having trouble loading Stu’s notes right now, but I’m happy to chat.";
-      return NextResponse.json({ answer, sources: [] });
+    if (index && index.length) {
+      const emb = await client.embeddings.create({
+        model: "text-embedding-3-small",
+        input: message,
+      });
+      const q = emb.data[0].embedding;
+
+      const scored = index
+        .map((r) => ({ ...r, score: cos(q, r.embedding) }))
+        .sort((a, b) => b.score - a.score);
+
+      const top = scored.slice(0, 5);
+
+      context = top.map((s) => `• [${s.source}] ${s.text}`).join("\n");
+
+      // Only show reasonably relevant sources in the UI
+      const UI_MIN = 0.18;
+      sources = top
+        .filter((s) => typeof s.score === "number" && s.score >= UI_MIN)
+        .map((s) => ({
+          id: s.id,
+          source: s.source,
+          score: Number(s.score.toFixed(3)),
+        }));
     }
 
-    // We *do* have an index → compute embedding & similarity
-    const emb = await client.embeddings.create({
-      model: "text-embedding-3-small",
-      input: message,
-    });
-    const q = emb.data[0].embedding;
+    // ---- Build conversational history for the LLM ----
+    const formattedHistory = Array.isArray(history)
+      ? history.map((m) => ({
+          role: m.role,
+          content: m.content,
+        }))
+      : [];
 
-    const scored = index
-      .map((r) => ({ ...r, score: cos(q, r.embedding) }))
-      .sort((a, b) => b.score - a.score);
-
-    const top = scored.slice(0, 5);
-
-    const context = top.map((s) => `• [${s.source}] ${s.text}`).join("\n");
-
-    // We only use this threshold to decide which sources to *show* in the UI,
-    // not to gate whether the model is allowed to answer.
-    const UI_MIN = 0.18;
-    const sources = top
-      .filter((s) => typeof s.score === "number" && s.score >= UI_MIN)
-      .map((s) => ({
-        id: s.id,
-        source: s.source,
-        score: Number(s.score.toFixed(3)),
-      }));
-
-    const systemPrompt = `
-You are a friendly, conversational concierge for Stu McGibbon’s portfolio site.
-
-You have access to a set of notes about Stu (bio, resume, and project case studies), provided as "notes" below.
-
-**How to use the notes vs general knowledge**
-
-- When the user asks about Stu (his background, skills, projects, roles, impact, etc.), you MUST treat the notes as the primary source of truth.
-  - Only state concrete facts about Stu that are supported by the notes.
-  - If the notes don’t contain the answer, say you don’t know or that it isn’t in your notes yet.
-- When the user’s question is NOT about Stu (general questions, small talk, random ideas, etc.), you may ignore the notes and answer like a normal helpful assistant.
-- Do NOT randomly inject Stu-related information into generic or small-talk questions unless the user asks for it.
-
-**Style**
-
-- Be warm, concise, and natural — similar to ChatGPT.
-- 1–4 sentences is usually enough unless the user explicitly asks for more detail.
-- Avoid unnecessary Markdown formatting (like bolding random phrases) unless it’s already in the notes.
-`;
-
-    const userPrompt = `
-User question:
+    // Append the latest user turn, including notes context
+    formattedHistory.push({
+      role: "user",
+      content: `
+User message:
 ${message}
 
-Notes about Stu (may or may not be relevant to this question):
+Notes about Stu (these may or may not be relevant):
 ${context}
-`.trim();
+      `.trim(),
+    });
+
+    const systemPrompt = `
+You are a warm, conversational assistant on Stu McGibbon’s portfolio site.
+
+You have access to notes about Stu (bio, resume, and project case studies) when they are provided in the "notes" section of the user message.
+
+Guidelines:
+- When the user asks about Stu (background, roles, skills, projects, impact, etc.), treat the notes as the primary source of truth.
+  - Only state concrete facts about Stu that are supported by the notes.
+  - If the notes don't contain the answer, say you don't know or that it isn't in your notes yet.
+- When the question is NOT about Stu (small talk, general questions, etc.), you may ignore the notes and answer normally.
+- Do NOT randomly inject Stu-related information into generic or small-talk questions unless the user asks for it.
+- Remember and use the prior conversation turns to keep context and avoid repeating yourself.
+
+Style:
+- Be friendly, concise, and natural (like ChatGPT).
+- Usually respond in 1–4 sentences, unless the user clearly wants more detail.
+- Avoid unnecessary Markdown formatting, unless it comes directly from the notes.
+    `.trim();
 
     const chat = await client.chat.completions.create({
       model: "gpt-4o-mini",
       temperature: 0.5,
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
+        ...formattedHistory,
       ],
     });
 
