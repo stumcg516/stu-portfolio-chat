@@ -147,7 +147,10 @@ export default function ChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: q, history: trimmedHistory() }),
+        body: JSON.stringify({
+          message: q,
+          history: messages,   // 👈 send the full chat history
+        }),
       });
 
       const contentType = res.headers.get("content-type") || "";
