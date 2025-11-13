@@ -98,7 +98,7 @@ function Message({ role, content, sources, animate }) {
     // ChatGPT-ish pace: ~25ms / character (auto-faster for very long texts)
     const baseDelay = 18;
     const len = full.length || 1;
-    const delay = len > 800 ? 10 : len > 400 ? 12 : baseDelay;
+    const delay = len > 800 ? 8 : len > 400 ? 12 : baseDelay;
 
     let i = 0;
     const id = setInterval(() => {
