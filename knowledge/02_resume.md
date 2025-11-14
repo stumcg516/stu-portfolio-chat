@@ -89,3 +89,9 @@ B.S. Cognitive Neuroscience, Minor in Design, Entrepreneurship & Innovation — 
 **Execution:** Figma, Adobe CC, VO, Lottie, HTML, CSS  
 **Collaboration:** Product Strategy, Cross-Functional Leadership, Communication, Stakeholder Alignment  
 **Specialties:** Design Systems, Growth Design, Mobile & Cross-Platform UX, 0→1 Product Development
+
+### Contact
+
+- Email: [stuart@mcgibbon.com](mailto:stuart@mcgibbon.com)  
+- LinkedIn: [linkedin.com/in/stu-mcgibbon](https://www.linkedin.com/in/stu-mcgibbon)
+
