@@ -1,11 +1,9 @@
 # Bio
 - Name: Stuart (Stu) McGibbon
 - Role focus: Staff/Lead Product Designer (0→1, systems, strategy)
-- Favorite ice cream: Mint Chocolate Chip
 - Strengths: clarity, momentum, navigating ambiguity, systems thinking
 - Favorite color: Purple.
 - Pets: 2 dogs - a border collie named Kirrie, and a border collie named Bailey. Growing up he had a pet fish named Blub-blub. 
 - Location: San Francisco (open to hybrid/remote)
 - Contact: Email stu@mcgibbon.com, linkedin https://www.linkedin.com/in/stu-mcgibbon/ 
 - Sign: Taurus
-- Rising sign: gatorade
