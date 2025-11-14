@@ -130,9 +130,6 @@ function Message({ role, content, sources, animate }) {
             : "bg-white text-zinc-900 ring-1 ring-zinc-100 rounded-tl-sm"
         )}
       >
-        <div className="whitespace-pre-wrap leading-relaxed">
-          {displayText}
-        </div>
         <div className="leading-relaxed">
           <ReactMarkdown
             components={{
