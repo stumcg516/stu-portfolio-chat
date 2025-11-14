@@ -5,5 +5,9 @@
 - Favorite color: Purple.
 - Pets: 2 dogs - a border collie named Kirrie, and a border collie named Bailey. Growing up he had a pet fish named Blub-blub. 
 - Location: San Francisco (open to hybrid/remote)
-- Contact: Email stu@mcgibbon.com, linkedin https://www.linkedin.com/in/stu-mcgibbon/ 
 - Sign: Taurus
+
+### Contact
+
+- Email: [stuart@mcgibbon.com](mailto:stuart@mcgibbon.com)  
+- LinkedIn: [linkedin.com/in/stu-mcgibbon](https://www.linkedin.com/in/stu-mcgibbon)
