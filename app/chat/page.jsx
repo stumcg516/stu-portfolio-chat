@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
 
 function cx(...classes) {
   return classes.filter(Boolean).join(" ");
@@ -131,6 +132,23 @@ function Message({ role, content, sources, animate }) {
       >
         <div className="whitespace-pre-wrap leading-relaxed">
           {displayText}
+        </div>
+        <div className="leading-relaxed">
+          <ReactMarkdown
+            components={{
+              a: ({ node, ...props }) => (
+                <a
+                  {...props}
+                  className="underline underline-offset-2 text-sky-600 hover:text-sky-700"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                />
+              ),
+              p: ({ node, ...props }) => <p className="mb-1" {...props} />,
+            }}
+          >
+            {displayText}
+          </ReactMarkdown>
         </div>
         {/* only show sources once the typing animation is done */}
         {!isUser && done && <Sources items={sources} />}
