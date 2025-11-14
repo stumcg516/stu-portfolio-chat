@@ -130,23 +130,22 @@ function Message({ role, content, sources, animate }) {
             : "bg-white text-zinc-900 ring-1 ring-zinc-100 rounded-tl-sm"
         )}
       >
-      <div className="leading-relaxed text-inherit">
-        <ReactMarkdown
-          className="text-inherit"
-          components={{
-            a: ({node, ...props}) => (
-              <a
-                {...props}
-                className="underline underline-offset-2 text-sky-300 hover:text-sky-400"
-                target="_blank"
-                rel="noopener noreferrer"
-              />
-            ),
-          }}
-        >
-          {displayText}
-        </ReactMarkdown>
-      </div>
+        <div className="leading-relaxed text-inherit [&_*]:text-inherit">
+          <ReactMarkdown
+            components={{
+              a: ({ node, ...props }) => (
+                <a
+                  {...props}
+                  className="underline underline-offset-2 text-sky-300 hover:text-sky-400"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                />
+              ),
+            }}
+          >
+            {displayText}
+          </ReactMarkdown>
+        </div>
 
         {/* only show sources once the typing animation is done */}
         {!isUser && done && <Sources items={sources} />}
@@ -205,8 +204,6 @@ export default function ChatPage() {
     const el = bottomRef.current;
     if (!el) return;
 
-    // Scroll so the latest part of the thread comes into view.
-    // `block: "start"` puts it toward the top of the scroll area.
     el.scrollIntoView({
       behavior: "smooth",
       block: "start",
