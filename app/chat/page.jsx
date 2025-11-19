@@ -129,22 +129,27 @@ function Message({ role, content, sources, animate }) {
             : "bg-white text-zinc-900 ring-1 ring-zinc-100 rounded-tl-sm"
         )}
       >
-        <div className="leading-relaxed text-inherit">
-          <ReactMarkdown
-            className="text-inherit"
-            components={{
-              a: ({ node, ...props }) => (
-                <a
-                  {...props}
-                  className="underline underline-offset-2 text-sky-300 hover:text-sky-400"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                />
-              ),
-            }}
-          >
-            {displayText}
-          </ReactMarkdown>
+        <ReactMarkdown
+          className="text-inherit"
+          components={{
+            a: ({ node, ...props }) => (
+              <a
+                {...props}
+                className={cx(
+                  "underline underline-offset-2",
+                  isUser
+                    ? "text-sky-300 hover:text-sky-400" // on black user bubble
+                    : "text-sky-600 hover:text-sky-700" // on white assistant bubble
+                )}
+                target="_blank"
+                rel="noopener noreferrer"
+              />
+            ),
+          }}
+        >
+          {displayText}
+        </ReactMarkdown>
+
         </div>
 
         {/* only show sources once the typing animation is done */}
