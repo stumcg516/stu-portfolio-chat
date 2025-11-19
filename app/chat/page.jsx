@@ -7,22 +7,6 @@ function cx(...classes) {
   return classes.filter(Boolean).join(" ");
 }
 
-function BotAvatar() {
-  return (
-    <div className="h-8 w-8 rounded-full bg-sky-100 text-sky-700 grid place-items-center text-sm">
-      🤖
-    </div>
-  );
-}
-
-function UserAvatar() {
-  return (
-    <div className="h-8 w-8 rounded-full bg-zinc-100 text-zinc-700 grid place-items-center text-sm">
-      🧑
-    </div>
-  );
-}
-
 function CopyBtn({ text }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -140,6 +124,10 @@ function Message({ role, content, sources, animate }) {
                   target="_blank"
                   rel="noopener noreferrer"
                 />
+              ),
+              // IMPORTANT: make paragraphs inherit the bubble text color
+              p: ({ node, ...props }) => (
+                <p className="mb-1 text-inherit" {...props} />
               ),
             }}
           >
@@ -304,7 +292,7 @@ export default function ChatPage() {
         <div className="mx-auto flex h-full max-w-3xl flex-col px-4">
           <div
             ref={listRef}
-            className="flex-1 pt-6 pb-32 flex flex-col gap-5 overflow-y-auto"
+            className="flex-1 pt-6 pb-28 flex flex-col gap-5 overflow-y-auto"
           >
             {messages.map((m, i) => (
               <Message
@@ -323,9 +311,9 @@ export default function ChatPage() {
         </div>
       </main>
 
-      {/* floating input bar with gradient backdrop + disclaimer */}
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-10 bg-gradient-to-t from-zinc-50 via-zinc-50/95 to-transparent pb-8 pt-6">
-        <div className="mx-auto max-w-3xl px-4 pointer-events-auto">
+      {/* floating input bar with gradient backdrop */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-10 bg-gradient-to-t from-zinc-50 via-zinc-50/95 to-transparent pb-2 pt-3">
+        <div className="mx-auto max-w-3xl px-4 pointer-events-auto space-y-1.5">
           <form
             className="relative"
             onSubmit={(e) => {
@@ -364,8 +352,7 @@ export default function ChatPage() {
               <span className="text-lg leading-none">↑</span>
             </button>
           </form>
-
-          <p className="mt-3 text-center text-xs text-zinc-400">
+          <p className="text-center text-[11px] text-zinc-400">
             StuGPT can make mistakes (just like Stu).
           </p>
         </div>
