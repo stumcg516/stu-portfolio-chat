@@ -114,9 +114,6 @@ function Message({ role, content, sources, animate }) {
     return () => clearInterval(id);
   }, [content, animate, isUser]);
 
-  // ensure correct text color for user vs assistant bubbles
-  const textColorClass = isUser ? "text-white" : "text-zinc-900";
-
   return (
     <div
       className={cx(
@@ -132,13 +129,10 @@ function Message({ role, content, sources, animate }) {
             : "bg-white text-zinc-900 ring-1 ring-zinc-100 rounded-bl-sm"
         )}
       >
-        <div className={cx("leading-relaxed", textColorClass)}>
+        <div className="leading-relaxed text-inherit">
           <ReactMarkdown
             className="text-inherit"
             components={{
-              p: ({node, ...props}) => (
-                <p {...props} className="text-inherit" />
-              ),
               a: ({ node, ...props }) => (
                 <a
                   {...props}
@@ -151,7 +145,6 @@ function Message({ role, content, sources, animate }) {
           >
             {displayText}
           </ReactMarkdown>
-
         </div>
 
         {/* only show sources once the typing animation is done */}
@@ -171,7 +164,7 @@ function Message({ role, content, sources, animate }) {
 function TypingBubble() {
   return (
     <div className="flex items-start justify-start">
-      <div className="inline-flex items-center rounded-2xl rounded-tl-sm bg-white px-4 py-3 shadow-sm ring-1 ring-zinc-100">
+      <div className="inline-flex items-center rounded-2xl rounded-bl-sm bg-white px-4 py-3 shadow-sm ring-1 ring-zinc-100">
         <div className="flex items-center gap-1.5">
           <span className="h-1.5 w-1.5 rounded-full bg-zinc-400 animate-pulse" />
           <span className="h-1.5 w-1.5 rounded-full bg-zinc-300 animate-pulse [animation-delay:150ms]" />
@@ -330,8 +323,8 @@ export default function ChatPage() {
         </div>
       </main>
 
-      {/* floating input bar with gradient backdrop */}
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-10 bg-gradient-to-t from-zinc-50 via-zinc-50/95 to-transparent pb-4 pt-6">
+      {/* floating input bar with gradient backdrop + disclaimer */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-10 bg-gradient-to-t from-zinc-50 via-zinc-50/95 to-transparent pb-8 pt-6">
         <div className="mx-auto max-w-3xl px-4 pointer-events-auto">
           <form
             className="relative"
@@ -341,7 +334,7 @@ export default function ChatPage() {
             }}
           >
             <input
-              className="w-full rounded-full border border-zinc-300 bg-white px-4 py-3 pr-14 shadow-sm outline-none focus:border-zinc-400 focus:ring-0 placeholder:text-zinc-400"
+              className="w-full rounded-full border border-zinc-300 bg-white px-4 py-3.5 pr-14 shadow-sm outline-none focus:border-zinc-400 focus:ring-0 placeholder:text-zinc-400"
               placeholder="Ask a question…"
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -368,9 +361,13 @@ export default function ChatPage() {
               disabled={!input.trim() || loading}
             >
               <span className="sr-only">Send</span>
-              <span className="text-lg leading-none text-white">↑</span>
+              <span className="text-lg leading-none">↑</span>
             </button>
           </form>
+
+          <p className="mt-3 text-center text-xs text-zinc-400">
+            StuGPT can make mistakes (just like Stu).
+          </p>
         </div>
       </div>
     </div>
