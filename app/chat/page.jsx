@@ -114,6 +114,9 @@ function Message({ role, content, sources, animate }) {
     return () => clearInterval(id);
   }, [content, animate, isUser]);
 
+  // ensure correct text color for user vs assistant bubbles
+  const textColorClass = isUser ? "text-white" : "text-zinc-900";
+
   return (
     <div
       className={cx(
@@ -129,27 +132,25 @@ function Message({ role, content, sources, animate }) {
             : "bg-white text-zinc-900 ring-1 ring-zinc-100 rounded-tl-sm"
         )}
       >
-        <ReactMarkdown
-          className="text-inherit"
-          components={{
-            a: ({ node, ...props }) => (
-              <a
-                {...props}
-                className={cx(
-                  "underline underline-offset-2",
-                  isUser
-                    ? "text-sky-300 hover:text-sky-400" // on black user bubble
-                    : "text-sky-600 hover:text-sky-700" // on white assistant bubble
-                )}
-                target="_blank"
-                rel="noopener noreferrer"
-              />
-            ),
-          }}
-        >
-          {displayText}
-        </ReactMarkdown>
-
+        <div className={cx("leading-relaxed", textColorClass)}>
+          <ReactMarkdown
+            className={textColorClass}
+            components={{
+              a: ({ node, ...props }) => (
+                <a
+                  {...props}
+                  className={cx(
+                    "underline underline-offset-2 hover:text-sky-400",
+                    isUser ? "text-sky-300" : "text-sky-600"
+                  )}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                />
+              ),
+            }}
+          >
+            {displayText}
+          </ReactMarkdown>
         </div>
 
         {/* only show sources once the typing animation is done */}
@@ -366,7 +367,7 @@ export default function ChatPage() {
               disabled={!input.trim() || loading}
             >
               <span className="sr-only">Send</span>
-              <span className="text-lg leading-none">↑</span>
+              <span className="text-lg leading-none text-white">↑</span>
             </button>
           </form>
         </div>
