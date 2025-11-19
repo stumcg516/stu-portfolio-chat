@@ -346,11 +346,11 @@ export default function ChatPage() {
             <button
               type="submit"
               className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black text-white shadow-sm hover:bg-zinc-800 disabled:opacity-50"
-              disabled={!input.trim() || loading}
             >
               <span className="sr-only">Send</span>
-              <span className="text-lg leading-none">↑</span>
+              <span className="text-white text-lg leading-none">↑</span>
             </button>
+
           </form>
           <p className="text-center text-[11px] text-zinc-400">
             StuGPT can make mistakes (just like Stu).
