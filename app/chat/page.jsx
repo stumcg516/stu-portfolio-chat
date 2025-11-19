@@ -134,15 +134,15 @@ function Message({ role, content, sources, animate }) {
       >
         <div className={cx("leading-relaxed", textColorClass)}>
           <ReactMarkdown
-            className={textColorClass}
+            className="text-inherit"
             components={{
+              p: ({node, ...props}) => (
+                <p {...props} className="text-inherit" />
+              ),
               a: ({ node, ...props }) => (
                 <a
                   {...props}
-                  className={cx(
-                    "underline underline-offset-2 hover:text-sky-400",
-                    isUser ? "text-sky-300" : "text-sky-600"
-                  )}
+                  className="underline underline-offset-2 text-sky-300 hover:text-sky-400"
                   target="_blank"
                   rel="noopener noreferrer"
                 />
@@ -151,6 +151,7 @@ function Message({ role, content, sources, animate }) {
           >
             {displayText}
           </ReactMarkdown>
+
         </div>
 
         {/* only show sources once the typing animation is done */}
