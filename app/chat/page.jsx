@@ -128,8 +128,8 @@ function Message({ role, content, sources, animate }) {
         className={cx(
           "max-w-[80%] rounded-2xl px-4 py-3 shadow-sm",
           isUser
-            ? "bg-black text-white rounded-tr-sm"
-            : "bg-white text-zinc-900 ring-1 ring-zinc-100 rounded-tl-sm"
+            ? "bg-black text-white rounded-br-sm"
+            : "bg-white text-zinc-900 ring-1 ring-zinc-100 rounded-bl-sm"
         )}
       >
         <div className={cx("leading-relaxed", textColorClass)}>
